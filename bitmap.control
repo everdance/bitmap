@@ -1,0 +1,5 @@
+# bitmap extension
+comment = 'bitmap access method index'
+default_version = '1.0'
+module_pathname = '$libdir/bitmap'
+relocatable = true
