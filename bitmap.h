@@ -29,13 +29,19 @@ typedef struct BitmapMetaPageData
   BlockNumber firstBlk[MAX_DISTINCT]; // index page by distinct vals index
 } BitmapMetaPageData;
 
+#define BitmapPageGetMeta(page) ((BitmapMetaPageData *) PageGetContents(page))
 // store index tuple
 // depending on vals size, we might need multiple value pages for max distinct values
-typedef struct BitmapValPageSpecData {
+typedef struct BitmapValPageOpaqueData {
   int ntuples;
-  BlockNumber nextValBlk;
-} BitmapValPagSpecData; 
+  BlockNumber nextBlk;
+} BitmapValPageOpaqueData;
 
+typedef BitmapValPageOpaqueData *BitmapValPageOpaque;
+
+
+#define BitmapValPageGetOpaque(page)                                           \
+  ((BitmapValPageOpaque)PageGetSpecialPointer(page))
 
 // index data page accessed by PageGetSpecialPointer
 typedef struct BitmapPageSpecData {
