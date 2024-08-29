@@ -45,18 +45,21 @@ typedef BitmapValPageOpaqueData *BitmapValPageOpaque;
 
 // index data page accessed by PageGetSpecialPointer
 typedef struct BitmapPageSpecData {
-  uint16 flags;
-  BlockNumber heapBlkMax;
-  BlockNumber heapBlkMin;
+  uint16 maxoff;
   BlockNumber nextBlk;
 } BitmapPageSpecData;
 
+typedef BitmapPageSpecData BitmapValPageOpaque;
+
+#define BitmapPageGetTuple(page, off) ()
+
+#define MAX_BITS_32 (MaxHeapTuplesPerPage/32 + 1)  // defined in htup_details.h
 /// index tuple ///
 // heap block id
 // tuple bit mpa
 typedef struct BitmapTuple {
   BlockNumber heapblk;
-  bits32 bm[MaxHeapTuplesPerPage/32]; // defined in htup_details.h
+  bits32 bm[MAX_BITS_32];
 } BitmapTuple;
 
 typedef struct BitmapState

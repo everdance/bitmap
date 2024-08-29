@@ -162,8 +162,14 @@ bool bminsert(Relation index, Datum *values, bool *isnull, ItemPointer ht_ctid,
 }
 
 void _bm_insert_distinct(Page page, IndexTuple itup) {
-  Size sizeNeeded = IndexTupleSize(itup) + sizeof(ItemIdData);
+  BitmapValPageOpaque opaque;
+  Page newPage;
+  Size sizeNeeded;
+  uint32 maxoff;
+  BlockNumber blkno;
+  Buffer buffer;
 
+  sizeNeeded = IndexTupleSize(itup) + sizeof(ItemIdData);
   if (PageGetFreeSpace(page) >= sizeNeeded) {
     maxoff = PageGetMaxOffsetNumber(page) + 1;
     if (PageAddItem(page, (Item)itup, IndexTupleSize(tup), off, false, false) != off) {
@@ -180,7 +186,85 @@ void _bm_insert_distinct(Page page, IndexTuple itup) {
   } else {
     buffer = ReadBuffer(index, blkno);
   }
+  opaque = BitmapValPageGetOpaque(page);
+  opaque->nextBlk = blkno;
 
   newPage = BufferGetPage(buffer);
   PageAddItem(newPage, (Item)itup, IndexTupleSize(tup), 1, false, false);
+}
+
+void _bm_upsert_ctid(BlockNumber blkno, ItemPointer ctid) {
+  Buffer buffer;
+  Buffer nbuffer;
+  Page page;
+  BitmapPageOpaque opaque;
+  
+  while (blkno != InvalidBlockNumber) {
+    buffer = ReadBuffer(index, blkno);
+    LockBuffer(buffer, BUFFER_LOCK_SHARE);
+    page = BufferGetPage(buffer);
+
+    if (_bm_page_add_item(page, ctid)) {
+      UnlockReleaseBuffer(buffer);
+      return;
+    }
+
+    opaque = BitmapPageGetOpaque(page);
+    blkno = opaque->nextBlk;
+    UnlockReleaseBuffer(buffer);
+  }
+
+  opaque = BitmapPageGetOpaque(page);
+  blkno = GetFreeIndexPage(index);
+  if (blkno == InvalidBlockNumber) {
+    nbuffer = ReadBuffer(index, P_NEW);
+    blkno = BufferGetBlockNumber(buffer);
+  } else {
+    nbuffer = ReadBuffer(index, blkno);
+  }
+  opaque->nextBlk = blkno;
+  UnlockReleaseBuffer(buffer);
+
+  LockBuffer(nbuffer, BUFFER_LOCK_SHARE);
+  page = BufferGetPage(nbuffer);
+  _bm_page_add_item(page, _bm_form_tuple(ctid));  
+  UnlockReleaseBuffer(nbuffer);
+}
+
+bool _bm_page_add_item(Page page, BitmapTuple *tuple) {
+  BitmapTuple *itup;
+  BitmapPageOpaque opaque;
+  Pointer ptr;
+
+  opaque = BitmapPageGetOpaque(page);
+  for (int i = 1; i <= opaque->maxoff; i++) { 
+    itup = BitmapPageGetTuple(page, i);
+    if (itup->heapblk == tuple->heapblk) {
+      for (int j = 0; j < MAX_BITS_32; j++) {
+        itup->bm[j] &= tuple->bm[j];
+      }
+      return true;
+    }
+  }
+
+  if (BitmapGetFreeSpace(page) < sizeof(BitmapTuple))
+    return false;
+
+  itup = BitmapPageGetTuple(page, opaque->maxoff + 1);
+	memcpy((Pointer) itup, (Pointer) tuple, sizeof(BitmapTuple));
+
+	/* Adjust maxoff and pd_lower */
+	opaque->maxoff++;
+	ptr = (Pointer) BitmapPageGetTuple(page, opaque->maxoff + 1);
+	((PageHeader) page)->pd_lower = ptr - page;
+
+  return true;
+}
+
+static BitmapTuple *_bitmap_form_tuple(ItemPointer ctid) {
+  BitmapTuple *tuple = palloc0(sizeof(BitmapTuple));
+  tuple->heapblk = BlockIdGetBlockNumber(ctid->ip_blkid);
+  tuple->bm[ctid->ip_posid/32] &= 0x1 << (ctid->ip_posid%32);
+  
+  return tuple;
 }
