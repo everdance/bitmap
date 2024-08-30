@@ -81,11 +81,87 @@ bytea *bmoptions(Datum reloptions, bool validate) {
 
  static void bmBuildCallback(Relation index, ItemPointer tid, Datum *values,
                              bool *isnull, bool tupleIsAlive, void *state) {
-   
+   BitmapBuildState *buildstate = (BitmapBuildState *) state;
+   MemoryContext oldCtx;
+   BitmapTuple  *itup;
+   int index;
+
+   oldCtx = MemoryContextSwitchTo(buildstate->tmpCtx);
+   index = _bm_find_dist_val_index(values, isnull);
+
+  if (index < 0) {
+    if (metaData->ndistinct == MAX_DISTINCT)
+      elog(WARNING, "max distinct exceeded");
+
+    itup = index_form_tuple(RelationGetDescr(index), values, isnull);
+    metaData->valBlkEnd = _bm_insert_distinct(metaData->valBlkEnd, itup);
+    metaData->ndistinct++;
+  }
+
+  if (!buildstate->blocks[index]) {
+    buildstate->blocks[index] = (*PGAlignedBlock)palloc0(BLCKSZ);
+    PageInit(buildstate->blocks[index], BLCKSZ, sizeof(BitmapValPageOpaque));
+  }
+
+  itup = bm_form_tuple(tid);
+  if (!_bm_page_add_item(buildstate->blocks[index], itup)) {
+    Page		page;
+    Buffer		buffer = BloomNewBuffer(index);
+    GenericXLogState *state;
+
+    state = GenericXLogStart(index);
+    page = GenericXLogRegisterBuffer(state, buffer, GENERIC_XLOG_FULL_IMAGE);
+    memcpy(page, buildstate->data.data, BLCKSZ);
+    GenericXLogFinish(state);
+    UnlockReleaseBuffer(buffer);
+    PageInit(buildstate->blocks[index], BLCKSZ, sizeof(BitmapValPageOpaque));
+
+    if (!_bm_page_add_item(buildstate->blocks[index], itup)) {
+      elog(ERROR, "could not add new tuple to empty page");
+    }
+  }
+
+  buildstate->indtuples++;
+	MemoryContextSwitchTo(oldCtx);
+	MemoryContextReset(buildstate->tmpCtx);    
  }
 
-IndexBuildResult *
-bmbuild(Relation heap, Relation index, IndexInfo *indexInfo) {}
+IndexBuildResult *bmbuild(Relation heap, Relation index,
+                           IndexInfo *indexInfo) {
+	IndexBuildResult *result;
+	double		reltuples;
+	BitmapBuildState buildstate;
+
+	if (RelationGetNumberOfBlocks(index) != 0)
+		elog(ERROR, "index \"%s\" already contains data",
+			 RelationGetRelationName(index));
+
+  /* Initialize the meta page */
+	BitmapInitMetapage(index);
+
+	/* Initialize the bloom build state */
+	memset(&buildstate, 0, sizeof(buildstate));
+	initBloomState(&buildstate.blstate, index);
+	buildstate.tmpCtx = AllocSetContextCreate(CurrentMemoryContext,
+											  "Bitmap build temporary context",
+											  ALLOCSET_DEFAULT_SIZES);
+	/* Do the heap scan */
+	reltuples = table_index_build_scan(heap, index, indexInfo, true, true,
+									   bitmapBuildCallback, (void *) &buildstate,
+									   NULL);
+
+	/* Flush last page if needed (it will be, unless heap was empty) */
+	if (buildstate.count > 0)
+		flushCachedPage(index, &buildstate);
+
+	MemoryContextDelete(buildstate.tmpCtx);
+
+	result = (IndexBuildResult *) palloc(sizeof(IndexBuildResult));
+	result->heap_tuples = reltuples;
+	result->index_tuples = buildstate.indtuples;
+
+	return result;
+ }
 
 void bmbuildempty(Relation index) {
   Page metapage;
@@ -120,55 +196,69 @@ bool bminsert(Relation index, Datum *values, bool *isnull, ItemPointer ht_ctid,
   metaBuffer = ReadBuffer(index, BITMAP_METAPAGE_BLKNO);
 	LockBuffer(metaBuffer, BUFFER_LOCK_SHARE);
   metaData = BitmapPageGetMeta(BufferGetPage(metaBuffer));
-  // load data pages to check if itup already exists and return its index number
-  // otherwise insert itup as a distinct value, and increase meta data ndistinct
-  valPageBlk = BITMAP_VALPAGE_START_BLKNO;
-  distinctIdx = 0;
-  for (;BlockNumberIsValid(valPageBlk);) {
-    ReleaseBuffer(valBuffer);
-    valBuffer = ReadBuffer(index, valPageBlk);
-    valPage = BufferGetPage(valBuffer);
-    maxoff = PageGetMaxOffsetNumber(valPage);
-    for (off = FirstOffsetNumber; off <= maxoff; off = OffsetNumberNext(off)) {
-      ItemId		iid = PageGetItemId(page, off);
-      IndexTuple	idxtuple = (IndexTuple) PageGetItem(page, iid);
-      if (is_vals_equal(values, idxtuple)) {
-        found = true;
-        break;
-      }
-      distinctIdx++;
-    }
 
-    if (found) break;
-    
-    valPageOpaque = BitmapValPageGetOpaque(valPage);
-    valPageBlk = valPageOpaque->nextBlk;
-  }
-
-  if (!found) {
+  index = _bm_find_dist_val_index(values, isnull);
+  if (index < 0) {
     if (metaData->ndistinct == MAX_DISTINCT) {
       elog(WARNING, "max distinct exceeded");
       return false;
     }
 
     itup = index_form_tuple(RelationGetDescr(index), values, isnull);
-    _bm_insert_distinct(valPage, itup);
+    metaData->valBlkEnd = _bm_insert_distinct(metaData->valBlkEnd, itup);
     metaData->ndistinct++;
   }
   
-  _bm_upsert_ctid(metaData[distinctIdx], ht_ctid);
+  _bm_upsert_ctid(metaData[index], ht_ctid);
 
   return true;
 }
 
-void _bm_insert_distinct(Page page, IndexTuple itup) {
+int _bm_find_dist_val_index(Datum *values, bool *isnull) {
+  Page page;
+  BlockNumber blkno;
+  int index;
+  Buffer buffer;
+  BitmapValPageOpaque opaque;
+  
+  blkno = BITMAP_VALPAGE_START_BLKNO;
+  index = 0;
+
+  for (;BlockNumberIsValid(blkno);) {
+    ReleaseBuffer(buffer);
+    buffer = ReadBuffer(index, blkno);
+    page = BufferGetPage(buffer);
+    maxoff = PageGetMaxOffsetNumber(page);
+
+    for (off = FirstOffsetNumber; off <= maxoff; off = OffsetNumberNext(off)) {
+      ItemId		itid = PageGetItemId(page, off);
+      IndexTuple	idxtuple = (IndexTuple) PageGetItem(page, itid);
+      if (is_vals_equal(values, isnull, idxtuple)) {
+        return index;
+      }
+
+      index++;
+    }
+
+    opaque = BitmapValPageGetOpaque(page);
+    blkno = valPageOpaque->nextBlk;
+  }
+
+  return -1;
+}
+
+BlockNumber _bm_insert_distinct(BlockNumber endblk, IndexTuple itup) {
   BitmapValPageOpaque opaque;
   Page newPage;
+  Page page;
   Size sizeNeeded;
   uint32 maxoff;
   BlockNumber blkno;
   Buffer buffer;
 
+  buffer = ReadBuffer(index, endblk);
+  page = BufferGetPage(buffer);
+  
   sizeNeeded = IndexTupleSize(itup) + sizeof(ItemIdData);
   if (PageGetFreeSpace(page) >= sizeNeeded) {
     maxoff = PageGetMaxOffsetNumber(page) + 1;
@@ -176,10 +266,10 @@ void _bm_insert_distinct(Page page, IndexTuple itup) {
       elog(ERROR, "failed to add item to index data page in \"%s\"",
 						 RelationGetRelationName(index));
     }
-    return;
+    return endblk;
   }
 
-  BlockNumber blkno = GetFreeIndexPage(index);
+  blkno = GetFreeIndexPage(index);
   if (blkno == InvalidBlockNumber) {
     buffer = ReadBuffer(index, P_NEW);
     blkno = BufferGetBlockNumber(buffer);
@@ -191,6 +281,8 @@ void _bm_insert_distinct(Page page, IndexTuple itup) {
 
   newPage = BufferGetPage(buffer);
   PageAddItem(newPage, (Item)itup, IndexTupleSize(tup), 1, false, false);
+
+  return blkno;
 }
 
 void _bm_upsert_ctid(BlockNumber blkno, ItemPointer ctid) {

@@ -24,8 +24,7 @@ typedef struct BitmapMetaPageData
 {
   uint32 magic;
   int ndistinct; // number of distinct values, automatically increase
-  int ncols; // number of index columns
-  int valBlkEnd;  // end value page block number
+  int valBlkEnd; // end value page block number
   BlockNumber firstBlk[MAX_DISTINCT]; // index page by distinct vals index
 } BitmapMetaPageData;
 
@@ -65,5 +64,12 @@ typedef struct BitmapTuple {
 typedef struct BitmapState
 {
 } BitmapState;
+
+typedef struct
+{
+  int64 indtuples;
+  MemoryContext tmpCtx;
+  PGAlignedBlock *blocks[MAX_DISTINCT];
+} BitmapBuildState;
 
 #endif
