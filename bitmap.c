@@ -1,6 +1,10 @@
-#include <postgres.h>
-#include <storage/bufmgr.h>
 #include <string.h>
+#include <storage/bufmgr.h>
+#include <access/reloptions.h>
+#include <commands/vacuum.h>
+#include <access/generic_xlog.h>
+#include <nodes/execnodes.h>
+#include <utils/memutils.h>
 
 #include "bitmap.h"
 
@@ -67,7 +71,6 @@ Datum bmhandler(PG_FUNCTION_ARGS) {
 }
 
 void initBitmapState(BitmapState *state, Relation index) {
-  state->ncols = index->rd_att->nattrs;
 }
 
 bytea *bmoptions(Datum reloptions, bool validate) {
@@ -84,46 +87,46 @@ bytea *bmoptions(Datum reloptions, bool validate) {
    BitmapBuildState *buildstate = (BitmapBuildState *) state;
    MemoryContext oldCtx;
    BitmapTuple  *itup;
-   int index;
+   int valIdx;
 
    oldCtx = MemoryContextSwitchTo(buildstate->tmpCtx);
    index = _bm_find_dist_val_index(values, isnull);
 
-  if (index < 0) {
-    if (metaData->ndistinct == MAX_DISTINCT)
+  if (valIdx < 0) {
+    if (buildstate->ndistinct == MAX_DISTINCT)
       elog(WARNING, "max distinct exceeded");
 
     itup = index_form_tuple(RelationGetDescr(index), values, isnull);
-    metaData->valBlkEnd = _bm_insert_distinct(metaData->valBlkEnd, itup);
-    metaData->ndistinct++;
+    buildstate->valEndBlk = _bm_insert_distinct(buildstate->valEndBlk, itup);
+    buildstate->ndistinct++;
   }
 
-  if (!buildstate->blocks[index]) {
-    buildstate->blocks[index] = (*PGAlignedBlock)palloc0(BLCKSZ);
-    PageInit(buildstate->blocks[index], BLCKSZ, sizeof(BitmapValPageOpaque));
+  if (!buildstate->blocks[valIdx]) {
+    buildstate->blocks[valIdx] = (PGAlignedBlock *)palloc0(BLCKSZ);
+    PageInit(buildstate->blocks[valIdx], BLCKSZ, sizeof(BitmapValPageOpaque));
   }
 
   itup = bm_form_tuple(tid);
-  if (!_bm_page_add_item(buildstate->blocks[index], itup)) {
+  if (!_bm_page_add_item(buildstate->blocks[valIdx], itup)) {
     Page		page;
     Buffer		buffer = BloomNewBuffer(index);
     GenericXLogState *state;
 
     state = GenericXLogStart(index);
     page = GenericXLogRegisterBuffer(state, buffer, GENERIC_XLOG_FULL_IMAGE);
-    memcpy(page, buildstate->data.data, BLCKSZ);
+    memcpy(page, buildstate->blocks[valIdx], BLCKSZ);
     GenericXLogFinish(state);
     UnlockReleaseBuffer(buffer);
-    PageInit(buildstate->blocks[index], BLCKSZ, sizeof(BitmapValPageOpaque));
+    PageInit(buildstate->blocks[valIdx], BLCKSZ, sizeof(BitmapValPageOpaque));
 
-    if (!_bm_page_add_item(buildstate->blocks[index], itup)) {
+    if (!_bm_page_add_item(buildstate->blocks[valIdx], itup)) {
       elog(ERROR, "could not add new tuple to empty page");
     }
   }
 
   buildstate->indtuples++;
 	MemoryContextSwitchTo(oldCtx);
-	MemoryContextReset(buildstate->tmpCtx);    
+	MemoryContextReset(buildstate->tmpCtx);
  }
 
 IndexBuildResult *bmbuild(Relation heap, Relation index,
@@ -141,13 +144,12 @@ IndexBuildResult *bmbuild(Relation heap, Relation index,
 
 	/* Initialize the bloom build state */
 	memset(&buildstate, 0, sizeof(buildstate));
-	initBloomState(&buildstate.blstate, index);
 	buildstate.tmpCtx = AllocSetContextCreate(CurrentMemoryContext,
 											  "Bitmap build temporary context",
 											  ALLOCSET_DEFAULT_SIZES);
 	/* Do the heap scan */
 	reltuples = table_index_build_scan(heap, index, indexInfo, true, true,
-									   bitmapBuildCallback, (void *) &buildstate,
+									   bmBuildCallback, (void *) &buildstate,
 									   NULL);
 
 	/* Flush last page if needed (it will be, unless heap was empty) */
@@ -166,39 +168,41 @@ IndexBuildResult *bmbuild(Relation heap, Relation index,
 void bmbuildempty(Relation index) {
   Page metapage;
   
-  metapage = (PAGE) palloc(BLKSZ);
+  metapage = (Page) palloc(BLCKSZ);
   BitmapFillMeta(index, metapage);
 
   PageSetCheckSumInplace(metapage, BITMAP_METAPAGE_BLKNO);
-  smgrwrite(RelationGetSmgr(index), INIT_FORKNUM, BLOOM_METAPAGE_BLKNO,
+  smgrwrite(RelationGetSmgr(index), INIT_FORKNUM, BITMAP_METAPAGE_BLKNO,
 			  (char *) metapage, true);
-	log_newpage(&(RelationGetSmgr(index))->smgr_rnode.node, INIT_FORKNUM,
-				BLOOM_METAPAGE_BLKNO, metapage, true);
+	log_newpage(&(RelationGetSmgr(index))->smgr_rlocator, INIT_FORKNUM,
+				BITMAP_METAPAGE_BLKNO, metapage, true);
   smgrimmedsync(RelationGetSmgr(index), INIT_FORKNUM);
 }
 
 bool bminsert(Relation index, Datum *values, bool *isnull, ItemPointer ht_ctid,
              Relation heapRel, IndexUniqueCheck checkUnique,
              bool indexUnchanged, IndexInfo *indexInfo) {
-  BitmapState bmstate;
+  BitmapState *bmstate = (BitmapState *) indexInfo->ii_AmCache;
   BitmapTuple *bmtup;
-  MemoryContext oldCtx;
-  MemoryContext insertCtx;
+  MemoryContext oldCxt;
   IndexTuple itup;
   BitmapMetaPageData *metaData;
   Buffer buffer, metaBuffer;
   Page page, metaPage;
   BlockNumber blkno = InvalidBlockNumber;
+  int valIdx;
 
-  insertCtx = AllocSetContextCreate(CurrentMemoryContext, "bitmap insert context", ALLOCSET_DEFAULT_SIZES);
+  bmstate->tmpCxt = AllocSetContextCreate(CurrentMemoryContext, "bitmap insert context", ALLOCSET_DEFAULT_SIZES);
+  oldCxt = MemoryContextSwitchTo(bmstate->tmpCxt);
+  
   initBitmapState(&bmstate, index);
 
   metaBuffer = ReadBuffer(index, BITMAP_METAPAGE_BLKNO);
 	LockBuffer(metaBuffer, BUFFER_LOCK_SHARE);
   metaData = BitmapPageGetMeta(BufferGetPage(metaBuffer));
 
-  index = _bm_find_dist_val_index(values, isnull);
-  if (index < 0) {
+  valIdx = _bm_find_dist_val_index(index, values, isnull);
+  if (valIdx < 0) {
     if (metaData->ndistinct == MAX_DISTINCT) {
       elog(WARNING, "max distinct exceeded");
       return false;
@@ -209,31 +213,36 @@ bool bminsert(Relation index, Datum *values, bool *isnull, ItemPointer ht_ctid,
     metaData->ndistinct++;
   }
   
-  _bm_upsert_ctid(metaData[index], ht_ctid);
+  _bm_upsert_ctid(metaData[valIdx], ht_ctid);
 
-  return true;
+  /* clenup */
+	MemoryContextSwitchTo(oldCxt);
+	MemoryContextReset(bmstate->tmpCxt);
+
+  return false;
 }
 
-int _bm_find_dist_val_index(Datum *values, bool *isnull) {
+int _bm_find_dist_val_index(Relation index, Datum *values, bool *isnull) {
   Page page;
   BlockNumber blkno;
   int index;
   Buffer buffer;
+  OffsetNumber maxoff;
   BitmapValPageOpaque opaque;
   
   blkno = BITMAP_VALPAGE_START_BLKNO;
   index = 0;
 
-  for (;BlockNumberIsValid(blkno);) {
+  while (BlockNumberIsValid(blkno)) {
     ReleaseBuffer(buffer);
     buffer = ReadBuffer(index, blkno);
     page = BufferGetPage(buffer);
     maxoff = PageGetMaxOffsetNumber(page);
 
-    for (off = FirstOffsetNumber; off <= maxoff; off = OffsetNumberNext(off)) {
+    for (OffsetNumber off = FirstOffsetNumber; off <= maxoff; off = OffsetNumberNext(off)) {
       ItemId		itid = PageGetItemId(page, off);
       IndexTuple	idxtuple = (IndexTuple) PageGetItem(page, itid);
-      if (_bm_vals_equal(values, isnull, idxtuple)) {
+      if (_bm_vals_equal(index, values, isnull, idxtuple)) {
         return index;
       }
 
@@ -241,7 +250,7 @@ int _bm_find_dist_val_index(Datum *values, bool *isnull) {
     }
 
     opaque = BitmapValPageGetOpaque(page);
-    blkno = valPageOpaque->nextBlk;
+    blkno = opaque->nextBlk;
   }
 
   return -1;
@@ -252,7 +261,7 @@ BlockNumber _bm_insert_distinct(BlockNumber endblk, IndexTuple itup) {
   Page newPage;
   Page page;
   Size sizeNeeded;
-  uint32 maxoff;
+  OffsetNumber maxoff;
   BlockNumber blkno;
   Buffer buffer;
 
@@ -262,10 +271,10 @@ BlockNumber _bm_insert_distinct(BlockNumber endblk, IndexTuple itup) {
   sizeNeeded = IndexTupleSize(itup) + sizeof(ItemIdData);
   if (PageGetFreeSpace(page) >= sizeNeeded) {
     maxoff = PageGetMaxOffsetNumber(page) + 1;
-    if (PageAddItem(page, (Item)itup, IndexTupleSize(tup), off, false, false) != off) {
-      elog(ERROR, "failed to add item to index data page in \"%s\"",
-						 RelationGetRelationName(index));
+    if (PageAddItem(page, (Item)itup, IndexTupleSize(itup), maxoff, false, false) != maxoff) {
+      elog(ERROR, "failed to add item to index data page");
     }
+    // TODO increase max off in page
     return endblk;
   }
 
@@ -280,7 +289,7 @@ BlockNumber _bm_insert_distinct(BlockNumber endblk, IndexTuple itup) {
   opaque->nextBlk = blkno;
 
   newPage = BufferGetPage(buffer);
-  PageAddItem(newPage, (Item)itup, IndexTupleSize(tup), 1, false, false);
+  PageAddItem(newPage, (Item)itup, IndexTupleSize(itup), 1, false, false);
 
   return blkno;
 }
@@ -330,7 +339,7 @@ bool _bm_page_add_item(Page page, BitmapTuple *tuple) {
 
   opaque = BitmapPageGetOpaque(page);
   for (int i = 1; i <= opaque->maxoff; i++) { 
-    itup = BitmapPageGetTuple(page, i);
+    itup = PageGetItem(page, i);
     if (itup->heapblk == tuple->heapblk) {
       for (int j = 0; j < MAX_BITS_32; j++) {
         itup->bm[j] &= tuple->bm[j];
@@ -342,12 +351,12 @@ bool _bm_page_add_item(Page page, BitmapTuple *tuple) {
   if (BitmapGetFreeSpace(page) < sizeof(BitmapTuple))
     return false;
 
-  itup = BitmapPageGetTuple(page, opaque->maxoff + 1);
+  itup = PageGetItem(page, opaque->maxoff + 1);
 	memcpy((Pointer) itup, (Pointer) tuple, sizeof(BitmapTuple));
 
 	/* Adjust maxoff and pd_lower */
 	opaque->maxoff++;
-	ptr = (Pointer) BitmapPageGetTuple(page, opaque->maxoff + 1);
+	ptr = (Pointer) PageGetItem(page, opaque->maxoff + 1);
 	((PageHeader) page)->pd_lower = ptr - page;
 
   return true;
@@ -355,22 +364,22 @@ bool _bm_page_add_item(Page page, BitmapTuple *tuple) {
 
 static BitmapTuple *_bitmap_form_tuple(ItemPointer ctid) {
   BitmapTuple *tuple = palloc0(sizeof(BitmapTuple));
-  tuple->heapblk = BlockIdGetBlockNumber(ctid->ip_blkid);
+  tuple->heapblk = BlockIdGetBlockNumber(&ctid->ip_blkid);
   tuple->bm[ctid->ip_posid/32] &= 0x1 << (ctid->ip_posid%32);
   
   return tuple;
 }
 
-bool _bm_vals_equal(Relation index, Datum *cmpVals, bools *cmpIsnull, IndexTuple itup) {
+bool _bm_vals_equal(Relation index, Datum *cmpVals, bool *cmpIsnull, IndexTuple itup) {
   Datum		values[INDEX_MAX_KEYS];
   bool		isnull[INDEX_MAX_KEYS];
   TupleDesc tupDesc =  RelationGetDescr(index);
-  int nattrs = tupDesc->nattrs;
+  int nattrs = tupDesc->natts;
 
   index_deform_tuple(itup, tupDesc, values, isnull);
 
   for  (int i = 0; i < nattrs; i++) {
-    Form_pg_attribute att = TupleDescAttr(tupleDesc, i);
+    Form_pg_attribute att = TupleDescAttr(tupDesc, i);
 
     if (isnull[i] != cmpIsnull[i])
       return false;

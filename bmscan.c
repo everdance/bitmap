@@ -7,5 +7,4 @@ void bmrescan(IndexScanDesc scan, ScanKey scankey, int nscankeys,
 
 void bmendscan(IndexScanDesc scan) {}
 
-int64
-bmgetbitmap(IndexScanDesc scan, TIDBitmap *tbm){}
+int64 vbmgetbitmap(IndexScanDesc scan, TIDBitmap *tbm){}
