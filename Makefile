@@ -12,7 +12,14 @@ REGRESS_OPTS := \
 	--temp-instance=${PWD}/tmpdb
 
 OBJS = \
-	bitmap.o
+	bitmap.o \
+	bmcost.o \
+	bmpage.o \
+	bmscan.o \
+	bmtuple.o \
+	bmvacuum.o \
+	bmvalidate.o \
+	bmxlog.o
 
 PG_CONFIG = pg_config
 PGXS := $(shell $(PG_CONFIG) --pgxs)
