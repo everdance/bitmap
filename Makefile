@@ -1,6 +1,7 @@
 MODULE_big = bitmap
 EXTENSION = bitmap
 DATA = bitmap--1.0.sql
+DOCS = README.md
 PGFILEDESC = "bitmap access method"
 REGRESS := bitmap
 PG_USER = postgres

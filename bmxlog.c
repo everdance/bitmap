@@ -1,5 +1,7 @@
 #include "bitmap.h"
 
+#include <access/xlogreader.h>
+
 static void bm_xlog_createidx(XLogReaderState *record) {}
 
 static void bm_xlog_insert_update(XLogReaderState *record,

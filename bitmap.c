@@ -1,3 +1,5 @@
+#include <postgres.h>
+
 #include <string.h>
 #include <storage/bufmgr.h>
 #include <access/reloptions.h>
@@ -17,8 +19,22 @@ void _PG_init(void) {
   bm_relopt_kind = add_reloption_kind();
 }
 
+IndexBuildResult *bmbuild(Relation heap, Relation index,
+                           IndexInfo *indexInfo);
+void bmbuildempty(Relation index);
+bool bminsert(Relation index, Datum *values, bool *isnull, ItemPointer ht_ctid,
+             Relation heapRel, IndexUniqueCheck checkUnique,
+             bool indexUnchanged, IndexInfo *indexInfo);
+bytea *bmoptions(Datum reloptions, bool validate);
+bool _bm_page_add_item(Page page, BitmapTuple *tuple);
+BlockNumber _bm_insert_distinct(BlockNumber endblk, IndexTuple itup);
+void _bm_upsert_ctid(BlockNumber blkno, ItemPointer ctid);
+bool _bm_page_add_item(Page page, BitmapTuple *tuple);
+static BitmapTuple *_bitmap_form_tuple(ItemPointer ctid);
+bool _bm_vals_equal(Relation index, Datum *cmpVals, bool *cmpIsnull, IndexTuple itup);
 
-static BitmapOptions *makeDefaultBitmapOptions(void) {}
+
+static BitmapOptions *makeDefaultBitmapOptions(void) { return (BitmapOptions*)NIL;}
 
 Datum bmhandler(PG_FUNCTION_ARGS) {
   IndexAmRoutine *amroutine = makeNode(IndexAmRoutine);
@@ -90,7 +106,7 @@ bytea *bmoptions(Datum reloptions, bool validate) {
    int valIdx;
 
    oldCtx = MemoryContextSwitchTo(buildstate->tmpCtx);
-   index = _bm_find_dist_val_index(values, isnull);
+   valIdx = _bm_find_dist_val_index(index, values, isnull);
 
   if (valIdx < 0) {
     if (buildstate->ndistinct == MAX_DISTINCT)
@@ -103,10 +119,10 @@ bytea *bmoptions(Datum reloptions, bool validate) {
 
   if (!buildstate->blocks[valIdx]) {
     buildstate->blocks[valIdx] = (PGAlignedBlock *)palloc0(BLCKSZ);
-    PageInit(buildstate->blocks[valIdx], BLCKSZ, sizeof(BitmapValPageOpaque));
+    PageInit((Page)buildstate->blocks[valIdx], BLCKSZ, sizeof(BitmapValPageOpaque));
   }
 
-  itup = bm_form_tuple(tid);
+  itup = _bitmap_form_tuple(tid);
   if (!_bm_page_add_item(buildstate->blocks[valIdx], itup)) {
     Page		page;
     Buffer		buffer = BloomNewBuffer(index);
@@ -213,7 +229,7 @@ bool bminsert(Relation index, Datum *values, bool *isnull, ItemPointer ht_ctid,
     metaData->ndistinct++;
   }
   
-  _bm_upsert_ctid(metaData[valIdx], ht_ctid);
+  _bm_upsert_ctid(metaData->firstBlk[valIdx], ht_ctid);
 
   /* clenup */
 	MemoryContextSwitchTo(oldCxt);
@@ -225,13 +241,13 @@ bool bminsert(Relation index, Datum *values, bool *isnull, ItemPointer ht_ctid,
 int _bm_find_dist_val_index(Relation index, Datum *values, bool *isnull) {
   Page page;
   BlockNumber blkno;
-  int index;
+  int idx;
   Buffer buffer;
   OffsetNumber maxoff;
   BitmapValPageOpaque opaque;
   
   blkno = BITMAP_VALPAGE_START_BLKNO;
-  index = 0;
+  idx = 0;
 
   while (BlockNumberIsValid(blkno)) {
     ReleaseBuffer(buffer);
@@ -243,10 +259,10 @@ int _bm_find_dist_val_index(Relation index, Datum *values, bool *isnull) {
       ItemId		itid = PageGetItemId(page, off);
       IndexTuple	idxtuple = (IndexTuple) PageGetItem(page, itid);
       if (_bm_vals_equal(index, values, isnull, idxtuple)) {
-        return index;
+        return idx;
       }
 
-      index++;
+      idx++;
     }
 
     opaque = BitmapValPageGetOpaque(page);
@@ -328,7 +344,7 @@ void _bm_upsert_ctid(BlockNumber blkno, ItemPointer ctid) {
 
   LockBuffer(nbuffer, BUFFER_LOCK_SHARE);
   page = BufferGetPage(nbuffer);
-  _bm_page_add_item(page, _bm_form_tuple(ctid));  
+  _bm_page_add_item(page, _bitmap_form_tuple(ctid));  
   UnlockReleaseBuffer(nbuffer);
 }
 

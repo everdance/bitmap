@@ -71,11 +71,17 @@ typedef struct BitmapBuildState
 {
   int64 indtuples;
   int ndistinct;
-  int valEndBlk;
+  BlockNumber valEndBlk;
   int64 count;
   MemoryContext tmpCtx;
   PGAlignedBlock *blocks[FLEXIBLE_ARRAY_MEMBER];
 } BitmapBuildState;
+
+typedef struct xl_bm_insert
+{
+	BlockNumber heapBlk;
+	OffsetNumber offnum;
+} xl_bm_insert;
 
 extern bool bmvalidate(Oid opclassoid);
 extern IndexScanDesc bmbeginscan(Relation r, int nkeys, int norderbys);
