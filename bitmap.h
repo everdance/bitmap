@@ -47,11 +47,12 @@ typedef struct BitmapPageSpecData {
   BlockNumber nextBlk;
 } BitmapPageSpecData;
 
+#define BitmapPageGetOpaque(page)                                           \
+  ((BitmapPageOpaque)PageGetSpecialPointer(page))
+
 typedef BitmapPageSpecData *BitmapPageOpaque;
 
 typedef struct BitmapOptions {} BitmapOptions;
-
-#define BitmapPageGetTuple(page, off) ()
 
 #define MAX_BITS_32 (220/32 + 1)  // defined in htup_details.h
 /// index tuple ///
@@ -99,5 +100,10 @@ extern IndexBulkDeleteResult *bmbulkdelete(IndexVacuumInfo *info,
                                     void *callback_state);
 extern IndexBulkDeleteResult *bmvacuumcleanup(IndexVacuumInfo *info, IndexBulkDeleteResult *stats);
 
+extern Buffer BitmapNewBuffer(Relation index);
+extern void BitmapInitPage(Page page);
+extern void BitmapFillMetaPage(Relation index, Page meta);
+extern void BitmapInitMetaPage(Relation index);
+extern void flushCachedPage(Relation index, BitmapBuildState *state);
 
 #endif

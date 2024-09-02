@@ -9,3 +9,5 @@ void BitmapInitPage(Page page) {}
 void BitmapFillMetaPage(Relation index, Page meta) {}
 
 void BitmapInitMetaPage(Relation index) {}
+
+void flushCachedPage(Relation index, BitmapBuildState *state) {}
