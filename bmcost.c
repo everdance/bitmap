@@ -1,3 +1,5 @@
+#include <postgres.h>
+
 #include "bitmap.h"
 
 void

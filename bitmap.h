@@ -1,7 +1,8 @@
 #ifndef _BITMAP_H_
 #define _BITMAP_H_
 
-#include <postgres.h>
+// #include <postgres.h>
+
 #include <fmgr.h>
 #include <time.h>
 #include <access/amapi.h>
@@ -9,6 +10,7 @@
 #include <nodes/pathnodes.h>
 #include <access/htup_details.h>
 
+#define BITMAP_NSTRATEGIES 1
 #define BITMAP_METAPAGE_BLKNO 0
 #define BITMAP_VALPAGE_START_BLKNO 1
 #define MAX_DISTINCT ((BLCKSZ - offsetof(BitmapMetaPageData, firstBlk))/sizeof(BlockNumber))
@@ -22,7 +24,7 @@
 typedef struct BitmapMetaPageData
 {
   uint32 magic;
-  int ndistinct; // number of distinct values, automatically increase
+  int ndistinct; // number of distinct values, automatically increase until max distinct
   int valBlkEnd; // end value page block number
   BlockNumber firstBlk[FLEXIBLE_ARRAY_MEMBER]; // index page by distinct vals index
 } BitmapMetaPageData;
@@ -47,17 +49,16 @@ typedef struct BitmapPageSpecData {
   BlockNumber nextBlk;
 } BitmapPageSpecData;
 
+typedef BitmapPageSpecData *BitmapPageOpaque;
+
 #define BitmapPageGetOpaque(page)                                           \
   ((BitmapPageOpaque)PageGetSpecialPointer(page))
 
-typedef BitmapPageSpecData *BitmapPageOpaque;
 
 typedef struct BitmapOptions {} BitmapOptions;
 
-#define MAX_BITS_32 (220/32 + 1)  // defined in htup_details.h
-/// index tuple ///
-// heap block id
-// tuple bit mpa
+#define MAX_BITS_32 (220/32 + 1)
+
 typedef struct BitmapTuple {
   BlockNumber heapblk;
   bits32 bm[MAX_BITS_32];
@@ -75,7 +76,7 @@ typedef struct BitmapBuildState
   BlockNumber valEndBlk;
   int64 count;
   MemoryContext tmpCtx;
-  PGAlignedBlock *blocks[FLEXIBLE_ARRAY_MEMBER];
+  PGAlignedBlock **blocks;
 } BitmapBuildState;
 
 typedef struct xl_bm_insert
@@ -100,10 +101,11 @@ extern IndexBulkDeleteResult *bmbulkdelete(IndexVacuumInfo *info,
                                     void *callback_state);
 extern IndexBulkDeleteResult *bmvacuumcleanup(IndexVacuumInfo *info, IndexBulkDeleteResult *stats);
 
-extern Buffer BitmapNewBuffer(Relation index);
-extern void BitmapInitPage(Page page);
-extern void BitmapFillMetaPage(Relation index, Page meta);
-extern void BitmapInitMetaPage(Relation index);
-extern void flushCachedPage(Relation index, BitmapBuildState *state);
+extern bool bm_page_add_item(Page page, BitmapTuple *tuple);
+extern Buffer bm_new_buffer(Relation index);
+extern void bm_init_page(Page page);
+extern void bm_fill_metapage(Relation index, Page meta);
+extern void bm_init_metapage(Relation index);
+extern void bm_flush_cached(Relation index, BitmapBuildState *state);
 
 #endif
