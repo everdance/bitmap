@@ -33,28 +33,33 @@ bytea *bmoptions(Datum reloptions, bool validate) {
                                     tab, lengthof(tab));
  }
 
-static void bm_insert_tuple(Relation index, BlockNumber blkno, ItemPointer ctid) {
+static BlockNumber bm_insert_tuple(Relation index, BlockNumber blkno, ItemPointer ctid) {
   Buffer buffer = InvalidBuffer;
   Buffer nbuffer = InvalidBuffer;
+  BitmapTuple *tup = bitmap_form_tuple(ctid);
   Page page;
   BitmapPageOpaque opaque;
-  
-  do {
+  BlockNumber firstBlk = blkno;
+  // try insert bitmap tuple from the first block
+  // because we never delete bitmap tuple, there's no possibility
+  // of inserting duplicate records for a same heap block
+  while (blkno != InvalidBlockNumber) {
+    if (buffer != InvalidBuffer)
+        UnlockReleaseBuffer(buffer);
+
     buffer = ReadBuffer(index, blkno);
-    LockBuffer(buffer, BUFFER_LOCK_SHARE);
+    LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
     page = BufferGetPage(buffer);
 
-    if (bm_page_add_item(page, bitmap_form_tuple(ctid))) {
+    if (bm_page_add_tup(page, tup)) {
       UnlockReleaseBuffer(buffer);
-      return;
+      return firstBlk;
     }
 
     opaque = BitmapPageGetOpaque(page);
     blkno = opaque->nextBlk;
-    UnlockReleaseBuffer(buffer);
-  } while (blkno != InvalidBlockNumber);
+  }
 
-  opaque = BitmapPageGetOpaque(page);
   blkno = GetFreeIndexPage(index);
   if (blkno == InvalidBlockNumber) {
     nbuffer = ReadBuffer(index, P_NEW);
@@ -62,12 +67,24 @@ static void bm_insert_tuple(Relation index, BlockNumber blkno, ItemPointer ctid)
   } else {
     nbuffer = ReadBuffer(index, blkno);
   }
-  opaque->nextBlk = blkno;
 
-  LockBuffer(nbuffer, BUFFER_LOCK_SHARE);
+  if (buffer != InvalidBuffer) {
+    opaque = BitmapPageGetOpaque(page);
+    opaque->nextBlk = blkno;
+    UnlockReleaseBuffer(buffer);
+  }
+
+  LockBuffer(nbuffer, BUFFER_LOCK_EXCLUSIVE);
   page = BufferGetPage(nbuffer);
-  bm_page_add_item(page, bitmap_form_tuple(ctid));  
+  if (!bm_page_add_tup(page, tup))
+    elog(ERROR, "insert bitmap tuple failed on new page");
+
+  opaque = BitmapPageGetOpaque(page);
+  opaque->nextBlk = InvalidBlockNumber;
+  
   UnlockReleaseBuffer(nbuffer);
+
+  return firstBlk == InvalidBlockNumber ? blkno:firstBlk;
 }
 
 static BlockNumber bm_insert_val(Relation index, BlockNumber endblk, IndexTuple itup) {
@@ -85,10 +102,9 @@ static BlockNumber bm_insert_val(Relation index, BlockNumber endblk, IndexTuple 
   sizeNeeded = IndexTupleSize(itup) + sizeof(ItemIdData);
   if (PageGetFreeSpace(page) >= sizeNeeded) {
     maxoff = PageGetMaxOffsetNumber(page) + 1;
-    if (PageAddItem(page, (Item)itup, IndexTupleSize(itup), maxoff, false, false) != maxoff) {
+    if (PageAddItem(page, (Item)itup, IndexTupleSize(itup), maxoff, false, false) != maxoff)
       elog(ERROR, "failed to add item to index data page");
-    }
-    // TODO increase max off in page
+
     return endblk;
   }
 
@@ -115,8 +131,9 @@ bool bminsert(Relation index, Datum *values, bool *isnull, ItemPointer ht_ctid,
   MemoryContext oldCxt;
   IndexTuple itup;
   BitmapMetaPageData *metaData;
+  BlockNumber firstBlk;
   Buffer metaBuffer;
-  int valIdx;
+  int valIndx;
 
   bmstate->tmpCxt = AllocSetContextCreate(CurrentMemoryContext, "bitmap insert context", ALLOCSET_DEFAULT_SIZES);
   oldCxt = MemoryContextSwitchTo(bmstate->tmpCxt);
@@ -127,21 +144,28 @@ bool bminsert(Relation index, Datum *values, bool *isnull, ItemPointer ht_ctid,
 	LockBuffer(metaBuffer, BUFFER_LOCK_SHARE);
   metaData = BitmapPageGetMeta(BufferGetPage(metaBuffer));
 
-  valIdx = bm_get_val_index(index, values, isnull);
-  if (valIdx < 0) {
+  valIndx = bm_get_val_index(index, values, isnull);
+  if (valIndx < 0) {
     if (metaData->ndistinct == MAX_DISTINCT) {
-      elog(WARNING, "max distinct exceeded");
-      return false;
+      elog(WARNING, "max distinct exceeded on bitmap index \"%s\"",
+          RelationGetRelationName(index));
     }
+
+    LockBuffer(metaBuffer, BUFFER_LOCK_UNLOCK);
+    LockBuffer(metaBuffer, BUFFER_LOCK_EXCLUSIVE);
 
     itup = index_form_tuple(RelationGetDescr(index), values, isnull);
     metaData->valBlkEnd = bm_insert_val(index, metaData->valBlkEnd, itup);
     metaData->ndistinct++;
+    valIndx = bm_get_val_index(index, values, isnull);
   }
-  
-  bm_insert_tuple(index, metaData->firstBlk[valIdx], ht_ctid);
 
-  /* clenup */
+  if (valIndx >= 0) {
+    firstBlk = metaData->firstBlk[valIndx];
+    metaData->firstBlk[valIndx] = bm_insert_tuple(index, firstBlk, ht_ctid);
+  }
+
+  UnlockReleaseBuffer(metaBuffer);
 	MemoryContextSwitchTo(oldCxt);
 	MemoryContextReset(bmstate->tmpCxt);
 
@@ -179,7 +203,7 @@ static void bmBuildCallback(Relation index, ItemPointer tid, Datum *values,
 
   btup = bitmap_form_tuple(tid);
   bufpage = (Page)buildstate->blocks[valIdx];
-  if (!bm_page_add_item(bufpage, btup)) {
+  if (!bm_page_add_tup(bufpage, btup)) {
     Page		page;
     Buffer		buffer = bm_new_buffer(index);
     GenericXLogState *state;
@@ -191,7 +215,7 @@ static void bmBuildCallback(Relation index, ItemPointer tid, Datum *values,
     UnlockReleaseBuffer(buffer);
     PageInit(bufpage, BLCKSZ, sizeof(BitmapValPageOpaque));
 
-    if (!bm_page_add_item(bufpage, btup)) {
+    if (!bm_page_add_tup(bufpage, btup)) {
       elog(ERROR, "could not add new tuple to empty page");
     }
   }
@@ -211,7 +235,7 @@ IndexBuildResult *bmbuild(Relation heap, Relation index,
 			 RelationGetRelationName(index));
 
   /* Initialize the meta page */
-	bm_init_metapage(index);
+	bm_init_metapage(index, MAIN_FORKNUM);
 
 	/* Initialize the bloom build state */
 	memset(&buildstate, 0, sizeof(buildstate));
@@ -239,17 +263,7 @@ IndexBuildResult *bmbuild(Relation heap, Relation index,
  }
 
 void bmbuildempty(Relation index) {
-  Page metapage;
-  
-  metapage = (Page) palloc(BLCKSZ);
-  bm_fill_metapage(index, metapage);
-
-  PageSetChecksumInplace(metapage, BITMAP_METAPAGE_BLKNO);
-  smgrwrite(RelationGetSmgr(index), INIT_FORKNUM, BITMAP_METAPAGE_BLKNO,
-			  (char *) metapage, true);
-	log_newpage(&(RelationGetSmgr(index))->smgr_rlocator.locator, INIT_FORKNUM,
-				BITMAP_METAPAGE_BLKNO, metapage, true);
-  smgrimmedsync(RelationGetSmgr(index), INIT_FORKNUM);
+  bm_init_metapage(index, INIT_FORKNUM);
 }
 
 

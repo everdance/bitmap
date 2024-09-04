@@ -2,10 +2,11 @@
 
 #include <storage/bufmgr.h>
 #include <storage/indexfsm.h>
+#include <access/generic_xlog.h>
 
 #include "bitmap.h"
 
-bool bm_page_add_item(Page page, BitmapTuple *tuple) {
+bool bm_page_add_tup(Page page, BitmapTuple *tuple) {
   BitmapTuple *itup;
   BitmapPageOpaque opaque;
   Pointer ptr;
@@ -17,7 +18,7 @@ bool bm_page_add_item(Page page, BitmapTuple *tuple) {
     itup = (BitmapTuple *)PageGetItem(page, itid);
     if (itup->heapblk == tuple->heapblk) {
       for (int j = 0; j < MAX_BITS_32; j++) {
-        itup->bm[j] &= tuple->bm[j];
+        itup->bm[j] |= tuple->bm[j];
       }
       return true;
     }
@@ -109,8 +110,34 @@ Buffer bm_new_buffer(Relation index) {
 
 void bm_init_page(Page page) {}
 
-void bm_fill_metapage(Relation index, Page meta) {}
+void bm_init_metapage(Relation index, ForkNumber fork) {
+    Buffer		metaBuffer;
+	Page		metaPage;
+    BitmapMetaPageData *metaData;
 
-void bm_init_metapage(Relation index) {}
+	GenericXLogState *state;
+
+    metaBuffer = ReadBufferExtended(index, fork, P_NEW, RBM_NORMAL, NULL);
+	LockBuffer(metaBuffer, BUFFER_LOCK_EXCLUSIVE);
+	Assert(BufferGetBlockNumber(metaBuffer) == BITMAP_METAPAGE_BLKNO);
+
+    state = GenericXLogStart(index);
+	metaPage = GenericXLogRegisterBuffer(state, metaBuffer,
+										 GENERIC_XLOG_FULL_IMAGE);
+
+    PageInit(metaPage, BLCKSZ, 0);
+    metaData = BitmapPageGetMeta(metaPage);
+    metaData->magic = BITMAP_MAGIC_NUMBER;
+    metaData->ndistinct = 0;
+    metaData->valBlkEnd = InvalidBlockNumber;
+    for (size_t i = 0; i < MAX_DISTINCT; i++)
+        metaData->firstBlk[i] = InvalidBlockNumber;
+
+    ((PageHeader) metaPage)->pd_lower += offsetof(BitmapMetaPageData, firstBlk) + \
+        sizeof(BlockNumber) * MAX_DISTINCT;
+
+    GenericXLogFinish(state);
+	UnlockReleaseBuffer(metaBuffer);
+}
 
 void bm_flush_cached(Relation index, BitmapBuildState *state) {}

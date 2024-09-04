@@ -11,6 +11,7 @@
 #include <nodes/execnodes.h>
 #include <access/htup_details.h>
 
+#define BITMAP_MAGIC_NUMBER  0xDABC9876
 #define BITMAP_NSTRATEGIES 1
 #define BITMAP_METAPAGE_BLKNO 0
 #define BITMAP_VALPAGE_START_BLKNO 1
@@ -108,12 +109,11 @@ extern IndexBulkDeleteResult *bmbulkdelete(IndexVacuumInfo *info,
                                     void *callback_state);
 extern IndexBulkDeleteResult *bmvacuumcleanup(IndexVacuumInfo *info, IndexBulkDeleteResult *stats);
 
-extern bool bm_page_add_item(Page page, BitmapTuple *tuple);
+extern bool bm_page_add_tup(Page page, BitmapTuple *tuple);
 extern int bm_get_val_index(Relation index, Datum *values, bool *isnull);
 extern Buffer bm_new_buffer(Relation index);
 extern void bm_init_page(Page page);
-extern void bm_fill_metapage(Relation index, Page meta);
-extern void bm_init_metapage(Relation index);
+extern void bm_init_metapage(Relation index, ForkNumber fork);
 extern void bm_flush_cached(Relation index, BitmapBuildState *state);
 
 
