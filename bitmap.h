@@ -69,8 +69,9 @@ typedef struct BitmapBuildState
 {
   int64 indtuples;
   int ndistinct;
-  BlockNumber valEndBlk;
   int64 count;
+  BlockNumber valEndBlk;
+  BlockNumber *firstBlks;
   MemoryContext tmpCtx;
   PGAlignedBlock **blocks;
 } BitmapBuildState;

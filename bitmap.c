@@ -81,7 +81,7 @@ static BlockNumber bm_insert_tuple(Relation index, BlockNumber blkno, ItemPointe
 
   opaque = BitmapPageGetOpaque(page);
   opaque->nextBlk = InvalidBlockNumber;
-  
+
   UnlockReleaseBuffer(nbuffer);
 
   return firstBlk == InvalidBlockNumber ? blkno:firstBlk;
@@ -176,6 +176,7 @@ static void bmBuildCallback(Relation index, ItemPointer tid, Datum *values,
                              bool *isnull, bool tupleIsAlive, void *state) {
    BitmapBuildState *buildstate = (BitmapBuildState *) state;
    MemoryContext oldCtx;
+   BitmapPageOpaque opaque;
    IndexTuple  itup;
    BitmapTuple *btup;
    Page bufpage;
@@ -198,22 +199,31 @@ static void bmBuildCallback(Relation index, ItemPointer tid, Datum *values,
 
   if (!buildstate->blocks[valIdx]) {
     buildstate->blocks[valIdx] = (PGAlignedBlock *)palloc0(BLCKSZ);
-    PageInit((Page)buildstate->blocks[valIdx], BLCKSZ, sizeof(BitmapValPageOpaque));
+    PageInit((Page)buildstate->blocks[valIdx], BLCKSZ, sizeof(BitmapPageSpecData));
   }
 
   btup = bitmap_form_tuple(tid);
   bufpage = (Page)buildstate->blocks[valIdx];
+
   if (!bm_page_add_tup(bufpage, btup)) {
     Page		page;
     Buffer		buffer = bm_new_buffer(index);
     GenericXLogState *state;
+
+    opaque = BitmapPageGetOpaque(bufpage);
+    // TODO: this is not correct, tmp buffer is the last page for a distinct index keys
+    opaque->nextBlk = BufferGetBlockNumber(buffer);
+
+    if (buildstate->firstBlks[valIdx] == InvalidBlockNumber)
+      buildstate->firstBlks[valIdx] = opaque->nextBlk;
 
     state = GenericXLogStart(index);
     page = GenericXLogRegisterBuffer(state, buffer, GENERIC_XLOG_FULL_IMAGE);
     memcpy(page, bufpage, BLCKSZ);
     GenericXLogFinish(state);
     UnlockReleaseBuffer(buffer);
-    PageInit(bufpage, BLCKSZ, sizeof(BitmapValPageOpaque));
+
+    PageInit(bufpage, BLCKSZ, sizeof(BitmapPageSpecData));
 
     if (!bm_page_add_tup(bufpage, btup)) {
       elog(ERROR, "could not add new tuple to empty page");
@@ -243,6 +253,9 @@ IndexBuildResult *bmbuild(Relation heap, Relation index,
 											  "Bitmap build temporary context",
 											  ALLOCSET_DEFAULT_SIZES);
   buildstate.blocks = palloc0(sizeof(PGAlignedBlock*)* MAX_DISTINCT);
+  buildstate.firstBlks = palloc0(sizeof(BlockNumber) * MAX_DISTINCT);
+  // set all first block number to invalid block number
+  memset(buildstate.firstBlks, 0xFF, sizeof(BlockNumber) * MAX_DISTINCT);
 
 	/* Do the heap scan */
 	reltuples = table_index_build_scan(heap, index, indexInfo, true, true,
@@ -252,6 +265,8 @@ IndexBuildResult *bmbuild(Relation heap, Relation index,
 	/* Flush last page if needed (it will be, unless heap was empty) */
 	if (buildstate.count > 0)
 		bm_flush_cached(index, &buildstate);
+
+  // TODO: copy state fields to meta page
 
 	MemoryContextDelete(buildstate.tmpCtx);
 
