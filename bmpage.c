@@ -39,10 +39,44 @@ bool bm_page_add_item(Page page, BitmapTuple *tuple) {
   return true;
 }
 
+int bm_get_val_index(Relation index, Datum *values, bool *isnull) {
+  Page page;
+  BlockNumber blkno;
+  int idx;
+  Buffer buffer;
+  OffsetNumber maxoff;
+  BitmapValPageOpaque opaque;
+  
+  blkno = BITMAP_VALPAGE_START_BLKNO;
+  idx = 0;
+
+  do {
+    buffer = ReadBuffer(index, blkno);
+    page = BufferGetPage(buffer);
+    maxoff = PageGetMaxOffsetNumber(page);
+
+    for (OffsetNumber off = FirstOffsetNumber; off <= maxoff; off = OffsetNumberNext(off)) {
+      ItemId		itid = PageGetItemId(page, off);
+      IndexTuple	idxtuple = (IndexTuple) PageGetItem(page, itid);
+      if (bm_vals_equal(index, values, isnull, idxtuple)) {
+        return idx;
+      }
+
+      idx++;
+    }
+
+    opaque = BitmapValPageGetOpaque(page);
+    blkno = opaque->nextBlk;
+    ReleaseBuffer(buffer);
+  } while (BlockNumberIsValid(blkno));
+
+  return -1;
+}
 
 Buffer bm_new_buffer(Relation index) {
     Buffer		buffer;
-	for (;;)
+	
+    for (;;)
 	{
 		BlockNumber blkno = GetFreeIndexPage(index);
 		if (blkno == InvalidBlockNumber)
@@ -57,7 +91,7 @@ Buffer bm_new_buffer(Relation index) {
 		{
 			Page page = BufferGetPage(buffer);
 			if (PageIsNew(page))
-				return buffer;	/* OK to use, if never initialized */
+				return buffer;
 
 			LockBuffer(buffer, BUFFER_LOCK_UNLOCK);
 		}
