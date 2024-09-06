@@ -71,6 +71,8 @@ static BlockNumber bm_insert_tuple(Relation index, BlockNumber blkno, ItemPointe
   nbuffer = ReadBuffer(index, blkno);
   LockBuffer(nbuffer, BUFFER_LOCK_EXCLUSIVE);
   page = BufferGetPage(nbuffer);
+  bm_init_page(page, sizeof(BitmapPageSpecData));
+
   if (!bm_page_add_tup(page, tup))
     elog(ERROR, "insert bitmap tuple failed on new page");
 
@@ -95,13 +97,15 @@ static BlockNumber bm_insert_val(Relation index, BlockNumber endblk, IndexTuple 
     blkno = BufferGetBlockNumber(buffer);
     endblk = blkno;
     Assert(blkno == BITMAP_VALPAGE_START_BLKNO);
+    page = BufferGetPage(buffer);
+    bm_init_page(page, sizeof(BitmapValPageOpaqueData));
     // TODO: init new page??
   } else {
     buffer = ReadBuffer(index, endblk);
+    page = BufferGetPage(buffer);
   }
 
   LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
-  page = BufferGetPage(buffer);
   
   if (PageGetFreeSpace(page) >= (IndexTupleSize(itup) + sizeof(ItemIdData))) {
     maxoff = PageGetMaxOffsetNumber(page) + 1;
@@ -120,7 +124,7 @@ static BlockNumber bm_insert_val(Relation index, BlockNumber endblk, IndexTuple 
 
   LockBuffer(nbuffer, BUFFER_LOCK_EXCLUSIVE);
   page = BufferGetPage(nbuffer);
-  // ?? init new page
+  bm_init_page(page, sizeof(BitmapValPageOpaqueData));
   PageAddItem(page, (Item)itup, IndexTupleSize(itup), 1, false, false);
   UnlockReleaseBuffer(nbuffer);
 
@@ -185,17 +189,19 @@ bool bminsert(Relation index, Datum *values, bool *isnull, ItemPointer ht_ctid,
 
 static void bmBuildCallback(Relation index, ItemPointer tid, Datum *values,
                              bool *isnull, bool tupleIsAlive, void *state) {
-   BitmapBuildState *buildstate = (BitmapBuildState *) state;
-   MemoryContext oldCtx;
-   BitmapPageOpaque opaque;
-   IndexTuple  itup;
-   BitmapTuple *btup;
-   Page bufpage;
-   int valIdx;
+  BitmapBuildState *buildstate = (BitmapBuildState *) state;
+  MemoryContext oldCtx;
+  BitmapPageOpaque opaque;
+  IndexTuple  itup;
+  BitmapTuple *btup;
+  Page bufpage;
+  int valIdx = -1;
 
-   oldCtx = MemoryContextSwitchTo(buildstate->tmpCtx);
-   // TODO: should check val page from build state cache first
-   valIdx = bm_get_val_index(index, values, isnull);
+  oldCtx = MemoryContextSwitchTo(buildstate->tmpCtx);
+
+  if (buildstate->ndistinct > 0) {
+    valIdx = bm_get_val_index(index, values, isnull);
+  }
 
   if (valIdx < 0) {
     if (buildstate->ndistinct == MAX_DISTINCT) {
@@ -211,7 +217,7 @@ static void bmBuildCallback(Relation index, ItemPointer tid, Datum *values,
 
   if (!buildstate->blocks[valIdx]) {
     buildstate->blocks[valIdx] = (PGAlignedBlock *)palloc0(BLCKSZ);
-    PageInit((Page)buildstate->blocks[valIdx], BLCKSZ, sizeof(BitmapPageSpecData));
+    bm_init_page((Page)buildstate->blocks[valIdx], sizeof(BitmapPageSpecData));
   }
 
   btup = bitmap_form_tuple(tid);
@@ -222,8 +228,6 @@ static void bmBuildCallback(Relation index, ItemPointer tid, Datum *values,
     Buffer		buffer = bm_new_buffer(index);
     GenericXLogState *state;
 
-    // TODO: this is not correct, should link to prevoius page
-    // not first page
     opaque = BitmapPageGetOpaque(bufpage);
     opaque->nextBlk = BufferGetBlockNumber(buffer);
 
@@ -236,7 +240,7 @@ static void bmBuildCallback(Relation index, ItemPointer tid, Datum *values,
     GenericXLogFinish(state);
     UnlockReleaseBuffer(buffer);
 
-    PageInit(bufpage, BLCKSZ, sizeof(BitmapPageSpecData));
+    bm_init_page(bufpage, sizeof(BitmapPageSpecData));
 
     if (!bm_page_add_tup(bufpage, btup)) {
       elog(ERROR, "could not add new tuple to empty page");

@@ -116,7 +116,7 @@ extern IndexBulkDeleteResult *bmvacuumcleanup(IndexVacuumInfo *info, IndexBulkDe
 extern bool bm_page_add_tup(Page page, BitmapTuple *tuple);
 extern int bm_get_val_index(Relation index, Datum *values, bool *isnull);
 extern Buffer bm_new_buffer(Relation index);
-extern void bm_init_page(Page page);
+extern void bm_init_page(Page page, Size opaqueSize);
 extern void bm_init_metapage(Relation index, ForkNumber fork);
 extern void bm_flush_cached(Relation index, BitmapBuildState *state);
 

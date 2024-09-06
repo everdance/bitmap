@@ -108,7 +108,9 @@ Buffer bm_new_buffer(Relation index) {
     return buffer;
 }
 
-void bm_init_page(Page page) {}
+void bm_init_page(Page page, Size opaqueSize) {
+    PageInit(page, BLCKSZ, opaqueSize);
+}
 
 void bm_init_metapage(Relation index, ForkNumber fork) {
     Buffer		metaBuffer;
