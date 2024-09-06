@@ -29,15 +29,12 @@ typedef struct BitmapMetaPageData
 } BitmapMetaPageData;
 
 #define BitmapPageGetMeta(page) ((BitmapMetaPageData *) PageGetContents(page))
-// store index tuple
-// depending on vals size, we might need multiple value pages for max distinct values
+
 typedef struct BitmapValPageOpaqueData {
-  int ntuples;
   BlockNumber nextBlk;
 } BitmapValPageOpaqueData;
 
 typedef BitmapValPageOpaqueData *BitmapValPageOpaque;
-
 
 #define BitmapValPageGetOpaque(page)                                           \
   ((BitmapValPageOpaque)PageGetSpecialPointer(page))
@@ -71,7 +68,7 @@ typedef struct BitmapState
 typedef struct BitmapBuildState
 {
   int64 indtuples;
-  int ndistinct;
+  uint32 ndistinct;
   int64 count;
   BlockNumber valEndBlk;
   BlockNumber *firstBlks;
