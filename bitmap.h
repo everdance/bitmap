@@ -15,13 +15,16 @@
 #define BITMAP_NSTRATEGIES 1
 #define BITMAP_METAPAGE_BLKNO 0
 #define BITMAP_VALPAGE_START_BLKNO 1
-#define MAX_DISTINCT ((BLCKSZ - offsetof(BitmapMetaPageData, firstBlk))/sizeof(BlockNumber))
+#define MAX_DISTINCT ((BLCKSZ \
+    -MAXALIGN(SizeOfPageHeaderData) \
+    -MAXALIGN(offsetof(BitmapMetaPageData, firstBlk)) \
+  ) / sizeof(BlockNumber))
 
 typedef struct BitmapMetaPageData
 {
   uint32 magic;
-  int ndistinct; // number of distinct values, automatically increase until max distinct
-  int valBlkEnd; // end value page block number
+  uint32 ndistinct; // number of distinct values, automatically increase until max distinct
+  BlockNumber valBlkEnd; // end value page block number
   BlockNumber firstBlk[FLEXIBLE_ARRAY_MEMBER]; // index page by distinct vals index
 } BitmapMetaPageData;
 
