@@ -153,6 +153,7 @@ void bm_flush_cached(Relation index, BitmapBuildState *state) {
     Page page;
     Page bufpage;
     Buffer buffer;
+    Buffer prevbuff;
     GenericXLogState *xlogstate;
 
     for (size_t i = 0; i < state->ndistinct; i++) {
@@ -160,6 +161,16 @@ void bm_flush_cached(Relation index, BitmapBuildState *state) {
         opaque = BitmapPageGetOpaque(bufpage);
         if (opaque->maxoff > 0) {
             buffer = bm_new_buffer(index);
+            LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
+            
+            if (state->prevBlks[i] != InvalidBlockNumber) {
+                prevbuff = ReadBuffer(index, state->prevBlks[i]);
+                LockBuffer(prevbuff, BUFFER_LOCK_EXCLUSIVE);
+                opaque = BitmapPageGetOpaque(BufferGetPage(prevbuff));
+                opaque->nextBlk = state->prevBlks[i];
+                UnlockReleaseBuffer(prevbuff);
+            }
+
             xlogstate = GenericXLogStart(index);
             page = GenericXLogRegisterBuffer(xlogstate, buffer, GENERIC_XLOG_FULL_IMAGE);
             memcpy(page, bufpage, BLCKSZ);

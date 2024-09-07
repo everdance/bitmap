@@ -193,7 +193,12 @@ static void bmBuildCallback(Relation index, ItemPointer tid, Datum *values,
   BitmapPageOpaque opaque;
   IndexTuple  itup;
   BitmapTuple *btup;
+  BlockNumber blkno;
   Page bufpage;
+  Page page;
+  Buffer buffer;
+  Buffer pbuffer;
+  GenericXLogState *xlogstate;
   int valindex = -1;
 
   oldCtx = MemoryContextSwitchTo(buildstate->tmpCtx);
@@ -223,21 +228,28 @@ static void bmBuildCallback(Relation index, ItemPointer tid, Datum *values,
   bufpage = (Page)buildstate->blocks[valindex];
 
   if (!bm_page_add_tup(bufpage, btup)) {
-    Page		page;
-    Buffer		buffer = bm_new_buffer(index);
-    GenericXLogState *state;
-
-    // TODO: this is not right, we need to link to previous page
-    opaque = BitmapPageGetOpaque(bufpage);
-    opaque->nextBlk = BufferGetBlockNumber(buffer);
+    buffer = bm_new_buffer(index);
+    LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
+    blkno = BufferGetBlockNumber(buffer);
 
     if (buildstate->firstBlks[valindex] == InvalidBlockNumber)
-      buildstate->firstBlks[valindex] = opaque->nextBlk;
+      buildstate->firstBlks[valindex] = blkno;
 
-    state = GenericXLogStart(index);
-    page = GenericXLogRegisterBuffer(state, buffer, GENERIC_XLOG_FULL_IMAGE);
+    // set next block number in previous block page
+    if (buildstate->prevBlks[valindex] != InvalidBlockNumber) {
+      pbuffer = ReadBuffer(index, buildstate->prevBlks[valindex]);
+      LockBuffer(pbuffer, BUFFER_LOCK_EXCLUSIVE);
+      opaque = BitmapPageGetOpaque(BufferGetPage(pbuffer));
+      opaque->nextBlk = blkno;
+      UnlockReleaseBuffer(pbuffer);
+    } else {
+      buildstate->prevBlks[valindex] = blkno;
+    }
+
+    xlogstate = GenericXLogStart(index);
+    page = GenericXLogRegisterBuffer(xlogstate, buffer, GENERIC_XLOG_FULL_IMAGE);
     memcpy(page, bufpage, BLCKSZ);
-    GenericXLogFinish(state);
+    GenericXLogFinish(xlogstate);
     UnlockReleaseBuffer(buffer);
 
     bm_init_page(bufpage, BITMAP_PAGE_INDEX);
@@ -278,7 +290,9 @@ IndexBuildResult *bmbuild(Relation heap, Relation index,
   buildstate.valEndBlk = 0xFFFF;
   buildstate.blocks = palloc0(sizeof(PGAlignedBlock*)* MAX_DISTINCT);
   buildstate.firstBlks = palloc0(sizeof(BlockNumber) * MAX_DISTINCT);
+  buildstate.prevBlks = palloc0(sizeof(BlockNumber) * MAX_DISTINCT);
   memset(buildstate.firstBlks, 0xFF, sizeof(BlockNumber) * MAX_DISTINCT);
+  memset(buildstate.prevBlks, 0xFF, sizeof(BlockNumber) * MAX_DISTINCT);
 
 	/* Do the heap scan */
 	reltuples = table_index_build_scan(heap, index, indexInfo, true, true,
