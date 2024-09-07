@@ -30,19 +30,16 @@ typedef struct BitmapMetaPageData
 
 #define BitmapPageGetMeta(page) ((BitmapMetaPageData *) PageGetContents(page))
 
-typedef struct BitmapValPageOpaqueData {
-  BlockNumber nextBlk;
-} BitmapValPageOpaqueData;
 
-typedef BitmapValPageOpaqueData *BitmapValPageOpaque;
+#define BITMAP_PAGE_META 0x01
+#define BITMAP_PAGE_VALUE 0x02
+#define BITMAP_PAGE_INDEX 0x03
 
-#define BitmapValPageGetOpaque(page)                                           \
-  ((BitmapValPageOpaque)PageGetSpecialPointer(page))
-
-// index data page accessed by PageGetSpecialPointer
 typedef struct BitmapPageSpecData {
   uint16 maxoff;
   BlockNumber nextBlk;
+  uint16 pgtype;
+  uint16 unused;
 } BitmapPageSpecData;
 
 typedef BitmapPageSpecData *BitmapPageOpaque;
@@ -69,7 +66,6 @@ typedef struct BitmapBuildState
 {
   int64 indtuples;
   uint32 ndistinct;
-  int64 count;
   BlockNumber valEndBlk;
   BlockNumber *firstBlks;
   MemoryContext tmpCtx;
@@ -113,7 +109,7 @@ extern IndexBulkDeleteResult *bmvacuumcleanup(IndexVacuumInfo *info, IndexBulkDe
 extern bool bm_page_add_tup(Page page, BitmapTuple *tuple);
 extern int bm_get_val_index(Relation index, Datum *values, bool *isnull);
 extern Buffer bm_new_buffer(Relation index);
-extern void bm_init_page(Page page, Size opaqueSize);
+extern void bm_init_page(Page page, uint16 pgtype);
 extern void bm_init_metapage(Relation index, ForkNumber fork);
 extern void bm_flush_cached(Relation index, BitmapBuildState *state);
 

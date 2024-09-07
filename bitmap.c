@@ -71,7 +71,7 @@ static BlockNumber bm_insert_tuple(Relation index, BlockNumber blkno, ItemPointe
   nbuffer = ReadBuffer(index, blkno);
   LockBuffer(nbuffer, BUFFER_LOCK_EXCLUSIVE);
   page = BufferGetPage(nbuffer);
-  bm_init_page(page, sizeof(BitmapPageSpecData));
+  bm_init_page(page, BITMAP_PAGE_INDEX);
 
   if (!bm_page_add_tup(page, tup))
     elog(ERROR, "insert bitmap tuple failed on new page");
@@ -85,7 +85,7 @@ static BlockNumber bm_insert_tuple(Relation index, BlockNumber blkno, ItemPointe
 }
 
 static BlockNumber bm_insert_val(Relation index, BlockNumber endblk, IndexTuple itup) {
-  BitmapValPageOpaque opaque;
+  BitmapPageOpaque opaque;
   Page page;
   OffsetNumber maxoff;
   BlockNumber blkno;
@@ -98,8 +98,7 @@ static BlockNumber bm_insert_val(Relation index, BlockNumber endblk, IndexTuple 
     endblk = blkno;
     Assert(blkno == BITMAP_VALPAGE_START_BLKNO);
     page = BufferGetPage(buffer);
-    bm_init_page(page, sizeof(BitmapValPageOpaqueData));
-    // TODO: init new page??
+    bm_init_page(page, BITMAP_PAGE_VALUE);
   } else {
     buffer = ReadBuffer(index, endblk);
     page = BufferGetPage(buffer);
@@ -118,13 +117,13 @@ static BlockNumber bm_insert_val(Relation index, BlockNumber endblk, IndexTuple 
 
   nbuffer = bm_new_buffer(index);
   blkno = BufferGetBlockNumber(nbuffer);
-  opaque = BitmapValPageGetOpaque(page);
+  opaque = BitmapPageGetOpaque(page);
   opaque->nextBlk = blkno;
   UnlockReleaseBuffer(buffer);
 
   LockBuffer(nbuffer, BUFFER_LOCK_EXCLUSIVE);
   page = BufferGetPage(nbuffer);
-  bm_init_page(page, sizeof(BitmapValPageOpaqueData));
+  bm_init_page(page, BITMAP_PAGE_VALUE);
   PageAddItem(page, (Item)itup, IndexTupleSize(itup), 1, false, false);
   UnlockReleaseBuffer(nbuffer);
 
@@ -195,15 +194,15 @@ static void bmBuildCallback(Relation index, ItemPointer tid, Datum *values,
   IndexTuple  itup;
   BitmapTuple *btup;
   Page bufpage;
-  int valIdx = -1;
+  int valindex = -1;
 
   oldCtx = MemoryContextSwitchTo(buildstate->tmpCtx);
 
   if (buildstate->ndistinct > 0) {
-    valIdx = bm_get_val_index(index, values, isnull);
+    valindex = bm_get_val_index(index, values, isnull);
   }
 
-  if (valIdx < 0) {
+  if (valindex < 0) {
     if (buildstate->ndistinct == MAX_DISTINCT) {
       elog(WARNING, "max distinct exceeded");
       MemoryContextSwitchTo(oldCtx);
@@ -215,24 +214,25 @@ static void bmBuildCallback(Relation index, ItemPointer tid, Datum *values,
     buildstate->ndistinct++;
   }
 
-  if (!buildstate->blocks[valIdx]) {
-    buildstate->blocks[valIdx] = (PGAlignedBlock *)palloc0(BLCKSZ);
-    bm_init_page((Page)buildstate->blocks[valIdx], sizeof(BitmapPageSpecData));
+  if (!buildstate->blocks[valindex]) {
+    buildstate->blocks[valindex] = (PGAlignedBlock *)palloc0(BLCKSZ);
+    bm_init_page((Page)buildstate->blocks[valindex], BITMAP_PAGE_INDEX);
   }
 
   btup = bitmap_form_tuple(tid);
-  bufpage = (Page)buildstate->blocks[valIdx];
+  bufpage = (Page)buildstate->blocks[valindex];
 
   if (!bm_page_add_tup(bufpage, btup)) {
     Page		page;
     Buffer		buffer = bm_new_buffer(index);
     GenericXLogState *state;
 
+    // TODO: this is not right, we need to link to previous page
     opaque = BitmapPageGetOpaque(bufpage);
     opaque->nextBlk = BufferGetBlockNumber(buffer);
 
-    if (buildstate->firstBlks[valIdx] == InvalidBlockNumber)
-      buildstate->firstBlks[valIdx] = opaque->nextBlk;
+    if (buildstate->firstBlks[valindex] == InvalidBlockNumber)
+      buildstate->firstBlks[valindex] = opaque->nextBlk;
 
     state = GenericXLogStart(index);
     page = GenericXLogRegisterBuffer(state, buffer, GENERIC_XLOG_FULL_IMAGE);
@@ -240,8 +240,7 @@ static void bmBuildCallback(Relation index, ItemPointer tid, Datum *values,
     GenericXLogFinish(state);
     UnlockReleaseBuffer(buffer);
 
-    bm_init_page(bufpage, sizeof(BitmapPageSpecData));
-
+    bm_init_page(bufpage, BITMAP_PAGE_INDEX);
     if (!bm_page_add_tup(bufpage, btup)) {
       elog(ERROR, "could not add new tuple to empty page");
     }
@@ -286,8 +285,7 @@ IndexBuildResult *bmbuild(Relation heap, Relation index,
 									   bmBuildCallback, (void *) &buildstate,
 									   NULL);
 
-	if (buildstate.count > 0)
-		bm_flush_cached(index, &buildstate);
+	bm_flush_cached(index, &buildstate);
 
   metadata->valBlkEnd = buildstate.valEndBlk;
   metadata->ndistinct = buildstate.ndistinct;

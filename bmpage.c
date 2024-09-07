@@ -46,7 +46,7 @@ int bm_get_val_index(Relation index, Datum *values, bool *isnull) {
   int idx;
   Buffer buffer;
   OffsetNumber maxoff;
-  BitmapValPageOpaque opaque;
+  BitmapPageOpaque opaque;
   
   blkno = BITMAP_VALPAGE_START_BLKNO;
   idx = 0;
@@ -66,7 +66,7 @@ int bm_get_val_index(Relation index, Datum *values, bool *isnull) {
       idx++;
     }
 
-    opaque = BitmapValPageGetOpaque(page);
+    opaque = BitmapPageGetOpaque(page);
     blkno = opaque->nextBlk;
     ReleaseBuffer(buffer);
   } while (BlockNumberIsValid(blkno));
@@ -108,8 +108,14 @@ Buffer bm_new_buffer(Relation index) {
     return buffer;
 }
 
-void bm_init_page(Page page, Size opaqueSize) {
-    PageInit(page, BLCKSZ, opaqueSize);
+void bm_init_page(Page page, uint16 pgtype) {
+    BitmapPageOpaque opaque;
+
+    PageInit(page, BLCKSZ, sizeof(BitmapPageSpecData));
+    opaque = BitmapPageGetOpaque(page);
+    opaque->maxoff = 0;
+    opaque->nextBlk = InvalidBlockNumber;
+    opaque->pgtype = pgtype;
 }
 
 void bm_init_metapage(Relation index, ForkNumber fork) {
@@ -127,7 +133,7 @@ void bm_init_metapage(Relation index, ForkNumber fork) {
 	metaPage = GenericXLogRegisterBuffer(state, metaBuffer,
 										 GENERIC_XLOG_FULL_IMAGE);
 
-    PageInit(metaPage, BLCKSZ, 0);
+    bm_init_page(metaPage, BITMAP_PAGE_META);
     metaData = BitmapPageGetMeta(metaPage);
     metaData->magic = BITMAP_MAGIC_NUMBER;
     metaData->ndistinct = 0;
@@ -142,4 +148,23 @@ void bm_init_metapage(Relation index, ForkNumber fork) {
 	UnlockReleaseBuffer(metaBuffer);
 }
 
-void bm_flush_cached(Relation index, BitmapBuildState *state) {}
+void bm_flush_cached(Relation index, BitmapBuildState *state) {
+    BitmapPageOpaque opaque;
+    Page page;
+    Page bufpage;
+    Buffer buffer;
+    GenericXLogState *xlogstate;
+
+    for (size_t i = 0; i < state->ndistinct; i++) {
+        bufpage = (Page)state->blocks[i];
+        opaque = BitmapPageGetOpaque(bufpage);
+        if (opaque->maxoff > 0) {
+            buffer = bm_new_buffer(index);
+            xlogstate = GenericXLogStart(index);
+            page = GenericXLogRegisterBuffer(xlogstate, buffer, GENERIC_XLOG_FULL_IMAGE);
+            memcpy(page, bufpage, BLCKSZ);
+            GenericXLogFinish(xlogstate);
+            UnlockReleaseBuffer(buffer);
+        }
+    }
+}
