@@ -159,10 +159,11 @@ void bm_flush_cached(Relation index, BitmapBuildState *state) {
     for (size_t i = 0; i < state->ndistinct; i++) {
         bufpage = (Page)state->blocks[i];
         opaque = BitmapPageGetOpaque(bufpage);
+        
         if (opaque->maxoff > 0) {
             buffer = bm_new_buffer(index);
             LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
-            
+
             if (state->prevBlks[i] != InvalidBlockNumber) {
                 prevbuff = ReadBuffer(index, state->prevBlks[i]);
                 LockBuffer(prevbuff, BUFFER_LOCK_EXCLUSIVE);

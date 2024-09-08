@@ -1,8 +1,6 @@
 #ifndef _BITMAP_H_
 #define _BITMAP_H_
 
-// #include <postgres.h>
-
 #include <fmgr.h>
 #include <time.h>
 #include <access/amapi.h>
@@ -12,9 +10,11 @@
 #include <access/htup_details.h>
 
 #define BITMAP_MAGIC_NUMBER  0xDABC9876
+
 #define BITMAP_NSTRATEGIES 1
 #define BITMAP_METAPAGE_BLKNO 0
 #define BITMAP_VALPAGE_START_BLKNO 1
+
 #define MAX_DISTINCT ((BLCKSZ \
     -MAXALIGN(SizeOfPageHeaderData) \
     -MAXALIGN(offsetof(BitmapMetaPageData, firstBlk)) \

@@ -12,6 +12,10 @@
 
 #include "bitmap.h"
 
+#ifdef PG_MODULE_MAGIC
+PG_MODULE_MAGIC;
+#endif
+
 static relopt_kind bm_relopt_kind;
 /*
  * Module initialize function: initialize info about bitmap relation options.
@@ -214,6 +218,8 @@ static void bmBuildCallback(Relation index, ItemPointer tid, Datum *values,
       return;
     }
 
+    // TODO (performance): put all distinctive values in build state,
+    // at the end of building, materialize to block page
     itup = index_form_tuple(RelationGetDescr(index), values, isnull);
     buildstate->valEndBlk = bm_insert_val(index, buildstate->valEndBlk, itup);
     buildstate->ndistinct++;
