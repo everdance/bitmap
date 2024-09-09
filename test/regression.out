@@ -1,5 +1,6 @@
-# using temp instance on port 61699 with PID 2088235
-not ok 1     - bitmap                                     16 ms
+# using temp instance on port 61699 with PID 2115011
+not ok 1     - bitmap                                   1810 ms
+# (test process exited with exit code 2)
 1..1
 # 1 of 1 tests failed.
 # The differences that caused some tests to fail can be viewed in the file "/home/xiaolei/Code/github/everdance/bitmap/test/regression.diffs".

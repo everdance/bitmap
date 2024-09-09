@@ -17,6 +17,7 @@
 
 #define MAX_DISTINCT ((BLCKSZ \
     -MAXALIGN(SizeOfPageHeaderData) \
+    -MAXALIGN(sizeof(struct BitmapPageSpecData)) \
     -MAXALIGN(offsetof(BitmapMetaPageData, firstBlk)) \
   ) / sizeof(BlockNumber))
 

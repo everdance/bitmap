@@ -1,14 +1,44 @@
-2024-09-07 20:22:43.052 EDT postmaster[2088235] LOG:  starting PostgreSQL 16.3 on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 13.2.0-23ubuntu4) 13.2.0, 64-bit
-2024-09-07 20:22:43.052 EDT postmaster[2088235] LOG:  listening on Unix socket "/tmp/pg_regress-jxfhXE/.s.PGSQL.61699"
-2024-09-07 20:22:43.053 EDT startup[2088240] LOG:  database system was shut down at 2024-09-07 20:22:43 EDT
-2024-09-07 20:22:43.056 EDT postmaster[2088235] LOG:  database system is ready to accept connections
-2024-09-07 20:22:44.127 EDT client backend[2088254] pg_regress/bitmap ERROR:  data type integer has no default operator class for access method "bitmap"
-2024-09-07 20:22:44.127 EDT client backend[2088254] pg_regress/bitmap HINT:  You must specify an operator class for the index or define a default operator class for the data type.
-2024-09-07 20:22:44.127 EDT client backend[2088254] pg_regress/bitmap STATEMENT:  CREATE INDEX bitmapidx ON tst USING bitmap (i);
-2024-09-07 20:22:44.137 EDT postmaster[2088235] LOG:  received fast shutdown request
-2024-09-07 20:22:44.137 EDT postmaster[2088235] LOG:  aborting any active transactions
-2024-09-07 20:22:44.138 EDT postmaster[2088235] LOG:  background worker "logical replication launcher" (PID 2088243) exited with exit code 1
-2024-09-07 20:22:44.138 EDT checkpointer[2088238] LOG:  shutting down
-2024-09-07 20:22:44.138 EDT checkpointer[2088238] LOG:  checkpoint starting: shutdown immediate
-2024-09-07 20:22:44.148 EDT checkpointer[2088238] LOG:  checkpoint complete: wrote 938 buffers (5.7%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.009 s, sync=0.001 s, total=0.010 s; sync files=0, longest=0.000 s, average=0.000 s; distance=4416 kB, estimate=4416 kB; lsn=0/1943F48, redo lsn=0/1943F48
-2024-09-07 20:22:44.155 EDT postmaster[2088235] LOG:  database system is shut down
+2024-09-08 15:09:17.530 EDT postmaster[2115011] LOG:  starting PostgreSQL 16.3 on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 13.2.0-23ubuntu4) 13.2.0, 64-bit
+2024-09-08 15:09:17.530 EDT postmaster[2115011] LOG:  listening on Unix socket "/tmp/pg_regress-P5Yjla/.s.PGSQL.61699"
+2024-09-08 15:09:17.532 EDT startup[2115016] LOG:  database system was shut down at 2024-09-08 15:09:17 EDT
+2024-09-08 15:09:17.535 EDT postmaster[2115011] LOG:  database system is ready to accept connections
+TRAP: failed Assert("set->latch->maybe_sleeping"), File: "latch.c", Line: 1486, PID: 2115015
+TRAP: failed Assert("set->latch->maybe_sleeping"), File: "latch.c", Line: 1486, PID: 2115017
+postgres: walwriter (ExceptionalCondition+0x70)[0x59ca344316e0]
+postgres: background writer (ExceptionalCondition+0x70)[0x59ca344316e0]
+postgres: walwriter (WaitEventSetWait+0x488)[0x59ca342cc078]
+postgres: background writer (WaitEventSetWait+0x488)[0x59ca342cc078]
+postgres: walwriter (WaitLatch+0x85)[0x59ca342cc135]
+postgres: background writer (WaitLatch+0x85)[0x59ca342cc135]
+postgres: walwriter (WalWriterMain+0x20c)[0x59ca34261f4c]
+postgres: background writer (BackgroundWriterMain+0x263)[0x59ca342581f3]
+postgres: walwriter (AuxiliaryProcessMain+0xe4)[0x59ca34256954]
+postgres: walwriter (+0x455453)[0x59ca3425c453]
+postgres: background writer (AuxiliaryProcessMain+0xf3)[0x59ca34256963]
+postgres: walwriter (+0x456d0a)[0x59ca3425dd0a]
+postgres: background writer (+0x455453)[0x59ca3425c453]
+postgres: walwriter (PostmasterMain+0xe00)[0x59ca3425fe20]
+postgres: background writer (PostmasterMain+0xe0a)[0x59ca3425fe2a]
+postgres: walwriter (main+0x20e)[0x59ca33f6a79e]
+/lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca)[0x7feaba82a1ca]
+/lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b)[0x7feaba82a28b]
+postgres: background writer (main+0x20e)[0x59ca33f6a79e]
+/lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca)[0x7feaba82a1ca]
+/lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b)[0x7feaba82a28b]
+postgres: walwriter (_start+0x25)[0x59ca33f6aad5]
+postgres: background writer (_start+0x25)[0x59ca33f6aad5]
+2024-09-08 15:09:19.392 EDT postmaster[2115011] LOG:  WAL writer process (PID 2115017) was terminated by signal 6: Aborted
+2024-09-08 15:09:19.392 EDT postmaster[2115011] LOG:  terminating any other active server processes
+2024-09-08 15:09:19.891 EDT postmaster[2115011] LOG:  all server processes terminated; reinitializing
+2024-09-08 15:09:19.951 EDT startup[2115035] LOG:  database system was interrupted; last known up at 2024-09-08 15:09:17 EDT
+2024-09-08 15:09:19.952 EDT startup[2115035] LOG:  database system was not properly shut down; automatic recovery in progress
+2024-09-08 15:09:20.741 EDT startup[2115035] LOG:  redo starts at 0/14F3CC8
+2024-09-08 15:09:21.094 EDT startup[2115035] LOG:  invalid record length at 0/1944B60: expected at least 24, got 0
+2024-09-08 15:09:21.094 EDT startup[2115035] LOG:  redo done at 0/1944B38 system usage: CPU: user: 0.01 s, system: 0.02 s, elapsed: 1.14 s
+2024-09-08 15:09:21.098 EDT checkpointer[2115036] LOG:  checkpoint starting: end-of-recovery immediate wait
+2024-09-08 15:09:21.473 EDT checkpointer[2115036] LOG:  checkpoint complete: wrote 940 buffers (5.7%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.373 s, sync=0.001 s, total=0.376 s; sync files=0, longest=0.000 s, average=0.000 s; distance=4419 kB, estimate=4419 kB; lsn=0/1944B60, redo lsn=0/1944B60
+2024-09-08 15:09:21.474 EDT postmaster[2115011] LOG:  received fast shutdown request
+2024-09-08 15:09:21.477 EDT checkpointer[2115036] LOG:  shutting down
+2024-09-08 15:09:21.477 EDT checkpointer[2115036] LOG:  checkpoint starting: shutdown immediate
+2024-09-08 15:09:21.510 EDT checkpointer[2115036] LOG:  checkpoint complete: wrote 0 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.033 s; sync files=0, longest=0.000 s, average=0.000 s; distance=0 kB, estimate=3977 kB; lsn=0/1944BD8, redo lsn=0/1944BD8
+2024-09-08 15:09:21.516 EDT postmaster[2115011] LOG:  database system is shut down

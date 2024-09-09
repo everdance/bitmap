@@ -119,33 +119,36 @@ void bm_init_page(Page page, uint16 pgtype) {
 }
 
 void bm_init_metapage(Relation index, ForkNumber fork) {
-    Buffer		metaBuffer;
-	Page		metaPage;
-    BitmapMetaPageData *metaData;
+    Buffer		metabuf;
+	Page		metapage;
+    BitmapMetaPageData *meta;
+    size_t i;
 
 	GenericXLogState *state;
 
-    metaBuffer = ReadBufferExtended(index, fork, P_NEW, RBM_NORMAL, NULL);
-	LockBuffer(metaBuffer, BUFFER_LOCK_EXCLUSIVE);
-	Assert(BufferGetBlockNumber(metaBuffer) == BITMAP_METAPAGE_BLKNO);
+    metabuf = ReadBufferExtended(index, fork, P_NEW, RBM_NORMAL, NULL);
+	LockBuffer(metabuf, BUFFER_LOCK_EXCLUSIVE);
+	Assert(BufferGetBlockNumber(metabuf) == BITMAP_METAPAGE_BLKNO);
 
     state = GenericXLogStart(index);
-	metaPage = GenericXLogRegisterBuffer(state, metaBuffer,
+	metapage = GenericXLogRegisterBuffer(state, metabuf,
 										 GENERIC_XLOG_FULL_IMAGE);
 
-    bm_init_page(metaPage, BITMAP_PAGE_META);
-    metaData = BitmapPageGetMeta(metaPage);
-    metaData->magic = BITMAP_MAGIC_NUMBER;
-    metaData->ndistinct = 0;
-    metaData->valBlkEnd = InvalidBlockNumber;
-    for (size_t i = 0; i < MAX_DISTINCT; i++)
-        metaData->firstBlk[i] = InvalidBlockNumber;
+    bm_init_page(metapage, BITMAP_PAGE_META);
+    meta = BitmapPageGetMeta(metapage);
+    meta->magic = BITMAP_MAGIC_NUMBER;
+    meta->ndistinct = 0;
+    meta->valBlkEnd = InvalidBlockNumber;
+    for (i = 0; i < MAX_DISTINCT; i++)
+        meta->firstBlk[i] = InvalidBlockNumber;
 
-    ((PageHeader) metaPage)->pd_lower += offsetof(BitmapMetaPageData, firstBlk) + \
+    ((PageHeader) metapage)->pd_lower += offsetof(BitmapMetaPageData, firstBlk) + \
         sizeof(BlockNumber) * MAX_DISTINCT;
 
+    Assert(((PageHeader) metapage)->pd_lower <= ((PageHeader) metapage)->pd_upper);
+
     GenericXLogFinish(state);
-	UnlockReleaseBuffer(metaBuffer);
+	UnlockReleaseBuffer(metabuf);
 }
 
 void bm_flush_cached(Relation index, BitmapBuildState *state) {
@@ -159,7 +162,7 @@ void bm_flush_cached(Relation index, BitmapBuildState *state) {
     for (size_t i = 0; i < state->ndistinct; i++) {
         bufpage = (Page)state->blocks[i];
         opaque = BitmapPageGetOpaque(bufpage);
-        
+
         if (opaque->maxoff > 0) {
             buffer = bm_new_buffer(index);
             LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);

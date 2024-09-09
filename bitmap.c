@@ -332,7 +332,7 @@ Datum bmhandler(PG_FUNCTION_ARGS) {
   IndexAmRoutine *amroutine = makeNode(IndexAmRoutine);
 
 	amroutine->amstrategies = BITMAP_NSTRATEGIES;
-	amroutine->amsupport = 0;
+	amroutine->amsupport = 1;
 	amroutine->amoptsprocnum = 0;
 	amroutine->amcanorder = false;
 	amroutine->amcanorderbyop = false;

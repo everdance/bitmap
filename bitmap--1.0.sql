@@ -9,3 +9,10 @@ LANGUAGE C;
 -- Access method
 CREATE ACCESS METHOD bitmap TYPE INDEX HANDLER bmhandler;
 COMMENT ON ACCESS METHOD bitmap IS 'bitmap index access method';
+
+CREATE OPERATOR CLASS int4_ops
+DEFAULT FOR TYPE int4 USING bitmap
+AS
+    OPERATOR        1       =(int4, int4),
+    FUNCTION        1       btint4cmp(int4,int4),
+STORAGE         int4;
