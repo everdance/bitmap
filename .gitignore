@@ -1,3 +1,5 @@
 .vscode/
+tmpdb/
+test/log/
 *.o
 *.so

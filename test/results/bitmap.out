@@ -1,0 +1,10 @@
+CREATE TABLE tst (
+	i	int4,
+	t	text
+);
+INSERT INTO tst SELECT i%2, substr(md5(i::text), 1, 1) FROM generate_series(1,2000) i;
+CREATE INDEX bitmapidx ON tst USING bitmap (i);
+server closed the connection unexpectedly
+	This probably means the server terminated abnormally
+	before or while processing the request.
+connection to server was lost

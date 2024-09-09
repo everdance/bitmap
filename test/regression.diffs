@@ -1,0 +1,14 @@
+diff -U3 /home/xiaolei/Code/github/everdance/bitmap/test/expected/bitmap.out /home/xiaolei/Code/github/everdance/bitmap/test/results/bitmap.out
+--- /home/xiaolei/Code/github/everdance/bitmap/test/expected/bitmap.out	2024-08-22 17:54:11.319361024 -0400
++++ /home/xiaolei/Code/github/everdance/bitmap/test/results/bitmap.out	2024-09-08 15:09:19.891331700 -0400
+@@ -0,0 +1,10 @@
++CREATE TABLE tst (
++	i	int4,
++	t	text
++);
++INSERT INTO tst SELECT i%2, substr(md5(i::text), 1, 1) FROM generate_series(1,2000) i;
++CREATE INDEX bitmapidx ON tst USING bitmap (i);
++server closed the connection unexpectedly
++	This probably means the server terminated abnormally
++	before or while processing the request.
++connection to server was lost

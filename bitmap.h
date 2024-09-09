@@ -1,8 +1,6 @@
 #ifndef _BITMAP_H_
 #define _BITMAP_H_
 
-// #include <postgres.h>
-
 #include <fmgr.h>
 #include <time.h>
 #include <access/amapi.h>
@@ -12,11 +10,14 @@
 #include <access/htup_details.h>
 
 #define BITMAP_MAGIC_NUMBER  0xDABC9876
+
 #define BITMAP_NSTRATEGIES 1
 #define BITMAP_METAPAGE_BLKNO 0
 #define BITMAP_VALPAGE_START_BLKNO 1
+
 #define MAX_DISTINCT ((BLCKSZ \
     -MAXALIGN(SizeOfPageHeaderData) \
+    -MAXALIGN(sizeof(struct BitmapPageSpecData)) \
     -MAXALIGN(offsetof(BitmapMetaPageData, firstBlk)) \
   ) / sizeof(BlockNumber))
 
@@ -30,19 +31,16 @@ typedef struct BitmapMetaPageData
 
 #define BitmapPageGetMeta(page) ((BitmapMetaPageData *) PageGetContents(page))
 
-typedef struct BitmapValPageOpaqueData {
-  BlockNumber nextBlk;
-} BitmapValPageOpaqueData;
 
-typedef BitmapValPageOpaqueData *BitmapValPageOpaque;
+#define BITMAP_PAGE_META 0x01
+#define BITMAP_PAGE_VALUE 0x02
+#define BITMAP_PAGE_INDEX 0x03
 
-#define BitmapValPageGetOpaque(page)                                           \
-  ((BitmapValPageOpaque)PageGetSpecialPointer(page))
-
-// index data page accessed by PageGetSpecialPointer
 typedef struct BitmapPageSpecData {
   uint16 maxoff;
   BlockNumber nextBlk;
+  uint16 pgtype;
+  uint16 unused;
 } BitmapPageSpecData;
 
 typedef BitmapPageSpecData *BitmapPageOpaque;
@@ -60,6 +58,9 @@ typedef struct BitmapTuple {
   bits32 bm[MAX_BITS_32];
 } BitmapTuple;
 
+#define BitmapPageGetTuple(page, offset) \
+((BitmapTuple *)(PageGetContents(page) + sizeof(struct BitmapTuple) * (offset - 1)))
+
 typedef struct BitmapState
 {
   MemoryContext tmpCxt;
@@ -69,9 +70,9 @@ typedef struct BitmapBuildState
 {
   int64 indtuples;
   uint32 ndistinct;
-  int64 count;
   BlockNumber valEndBlk;
   BlockNumber *firstBlks;
+  BlockNumber *prevBlks;
   MemoryContext tmpCtx;
   PGAlignedBlock **blocks;
 } BitmapBuildState;
@@ -112,8 +113,8 @@ extern IndexBulkDeleteResult *bmvacuumcleanup(IndexVacuumInfo *info, IndexBulkDe
 
 extern bool bm_page_add_tup(Page page, BitmapTuple *tuple);
 extern int bm_get_val_index(Relation index, Datum *values, bool *isnull);
-extern Buffer bm_new_buffer(Relation index);
-extern void bm_init_page(Page page, Size opaqueSize);
+extern Buffer bm_newbuf_exlocked(Relation index);
+extern void bm_init_page(Page page, uint16 pgtype);
 extern void bm_init_metapage(Relation index, ForkNumber fork);
 extern void bm_flush_cached(Relation index, BitmapBuildState *state);
 
