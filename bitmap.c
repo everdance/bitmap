@@ -65,7 +65,7 @@ static BlockNumber bm_insert_tuple(Relation index, BlockNumber blkno, ItemPointe
     blkno = opaque->nextBlk;
   }
 
-  blkno = bm_new_buffer(index);
+  blkno = bm_newbuf_exlocked(index);
   if (buffer != InvalidBuffer) {
     opaque = BitmapPageGetOpaque(page);
     opaque->nextBlk = blkno;
@@ -73,7 +73,6 @@ static BlockNumber bm_insert_tuple(Relation index, BlockNumber blkno, ItemPointe
   }
 
   nbuffer = ReadBuffer(index, blkno);
-  LockBuffer(nbuffer, BUFFER_LOCK_EXCLUSIVE);
   page = BufferGetPage(nbuffer);
   bm_init_page(page, BITMAP_PAGE_INDEX);
 
@@ -97,7 +96,7 @@ static BlockNumber bm_insert_val(Relation index, BlockNumber endblk, IndexTuple 
   Buffer nbuffer;
 
   if (endblk == InvalidBlockNumber) {
-    buffer = bm_new_buffer(index);
+    buffer = bm_newbuf_exlocked(index);
     blkno = BufferGetBlockNumber(buffer);
     endblk = blkno;
     Assert(blkno == BITMAP_VALPAGE_START_BLKNO);
@@ -106,9 +105,8 @@ static BlockNumber bm_insert_val(Relation index, BlockNumber endblk, IndexTuple 
   } else {
     buffer = ReadBuffer(index, endblk);
     page = BufferGetPage(buffer);
+    LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
   }
-
-  LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
   
   if (PageGetFreeSpace(page) >= (IndexTupleSize(itup) + sizeof(ItemIdData))) {
     maxoff = PageGetMaxOffsetNumber(page) + 1;
@@ -119,13 +117,12 @@ static BlockNumber bm_insert_val(Relation index, BlockNumber endblk, IndexTuple 
     return endblk;
   }
 
-  nbuffer = bm_new_buffer(index);
+  nbuffer = bm_newbuf_exlocked(index);
   blkno = BufferGetBlockNumber(nbuffer);
   opaque = BitmapPageGetOpaque(page);
   opaque->nextBlk = blkno;
   UnlockReleaseBuffer(buffer);
 
-  LockBuffer(nbuffer, BUFFER_LOCK_EXCLUSIVE);
   page = BufferGetPage(nbuffer);
   bm_init_page(page, BITMAP_PAGE_VALUE);
   PageAddItem(page, (Item)itup, IndexTupleSize(itup), 1, false, false);
@@ -223,6 +220,8 @@ static void bmBuildCallback(Relation index, ItemPointer tid, Datum *values,
     itup = index_form_tuple(RelationGetDescr(index), values, isnull);
     buildstate->valEndBlk = bm_insert_val(index, buildstate->valEndBlk, itup);
     buildstate->ndistinct++;
+    valindex = bm_get_val_index(index, values, isnull);
+    Assert(valindex >= 0);
   }
 
   if (!buildstate->blocks[valindex]) {
@@ -234,8 +233,7 @@ static void bmBuildCallback(Relation index, ItemPointer tid, Datum *values,
   bufpage = (Page)buildstate->blocks[valindex];
 
   if (!bm_page_add_tup(bufpage, btup)) {
-    buffer = bm_new_buffer(index);
-    LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
+    buffer = bm_newbuf_exlocked(index);
     blkno = BufferGetBlockNumber(buffer);
 
     if (buildstate->firstBlks[valindex] == InvalidBlockNumber)
@@ -293,7 +291,7 @@ IndexBuildResult *bmbuild(Relation heap, Relation index,
 	buildstate.tmpCtx = AllocSetContextCreate(CurrentMemoryContext,
 											  "Bitmap build temporary context",
 											  ALLOCSET_DEFAULT_SIZES);
-  buildstate.valEndBlk = 0xFFFF;
+  buildstate.valEndBlk = InvalidBlockNumber;
   buildstate.blocks = palloc0(sizeof(PGAlignedBlock*)* MAX_DISTINCT);
   buildstate.firstBlks = palloc0(sizeof(BlockNumber) * MAX_DISTINCT);
   buildstate.prevBlks = palloc0(sizeof(BlockNumber) * MAX_DISTINCT);

@@ -10,12 +10,10 @@ bool bm_page_add_tup(Page page, BitmapTuple *tuple) {
   BitmapTuple *itup;
   BitmapPageOpaque opaque;
   Pointer ptr;
-  ItemId itid;
 
   opaque = BitmapPageGetOpaque(page);
   for (int i = 1; i <= opaque->maxoff; i++) { 
-    itid = PageGetItemId(page, i);
-    itup = (BitmapTuple *)PageGetItem(page, itid);
+    itup = BitmapPageGetTuple(page, i);
     if (itup->heapblk == tuple->heapblk) {
       for (int j = 0; j < MAX_BITS_32; j++) {
         itup->bm[j] |= tuple->bm[j];
@@ -27,15 +25,13 @@ bool bm_page_add_tup(Page page, BitmapTuple *tuple) {
   if (PageGetFreeSpace(page) < sizeof(BitmapTuple))
     return false;
 
-  itid = PageGetItemId(page, opaque->maxoff + 1);
-  itup = (BitmapTuple *)PageGetItem(page, itid);
-  memcpy((Pointer) itup, (Pointer) tuple, sizeof(BitmapTuple));
+  opaque->maxoff++;
+  ptr = (Pointer)BitmapPageGetTuple(page, opaque->maxoff);
+  memcpy(ptr, (Pointer) tuple, sizeof(BitmapTuple));
 
 	/* Adjust maxoff and pd_lower */
-  opaque->maxoff++;
-  itid = PageGetItemId(page, opaque->maxoff + 1);
-	ptr = (Pointer) PageGetItem(page, itid);
-	((PageHeader) page)->pd_lower = ptr - page;
+  ptr = (Pointer)BitmapPageGetTuple(page, opaque->maxoff + 1);
+  ((PageHeader) page)->pd_lower = ptr - page;
 
   return true;
 }
@@ -60,6 +56,7 @@ int bm_get_val_index(Relation index, Datum *values, bool *isnull) {
       ItemId		itid = PageGetItemId(page, off);
       IndexTuple	idxtuple = (IndexTuple) PageGetItem(page, itid);
       if (bm_vals_equal(index, values, isnull, idxtuple)) {
+        ReleaseBuffer(buffer);
         return idx;
       }
 
@@ -74,7 +71,7 @@ int bm_get_val_index(Relation index, Datum *values, bool *isnull) {
   return -1;
 }
 
-Buffer bm_new_buffer(Relation index) {
+Buffer bm_newbuf_exlocked(Relation index) {
     Buffer		buffer;
 	
     for (;;)
@@ -164,8 +161,7 @@ void bm_flush_cached(Relation index, BitmapBuildState *state) {
         opaque = BitmapPageGetOpaque(bufpage);
 
         if (opaque->maxoff > 0) {
-            buffer = bm_new_buffer(index);
-            LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
+            buffer = bm_newbuf_exlocked(index);
 
             if (state->prevBlks[i] != InvalidBlockNumber) {
                 prevbuff = ReadBuffer(index, state->prevBlks[i]);
