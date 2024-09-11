@@ -16,3 +16,10 @@ AS
     OPERATOR        1       =(int4, int4),
     FUNCTION        1       btint4cmp(int4,int4),
 STORAGE         int4;
+
+CREATE FUNCTION bm_metap(IN relname text,
+    OUT magic int8,
+    OUT ndistinct int8,
+    OUT val_endblk int8)
+AS 'MODULE_PATHNAME', 'bm_metap'
+LANGUAGE C STRICT PARALLEL SAFE;

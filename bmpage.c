@@ -1,8 +1,13 @@
 #include <postgres.h>
 
+#include <funcapi.h>
 #include <storage/bufmgr.h>
 #include <storage/indexfsm.h>
 #include <access/generic_xlog.h>
+#include <access/relation.h>
+#include <catalog/namespace.h>
+#include <utils/varlena.h>
+#include <miscadmin.h>
 
 #include "bitmap.h"
 
@@ -178,4 +183,61 @@ void bm_flush_cached(Relation index, BitmapBuildState *state) {
             UnlockReleaseBuffer(buffer);
         }
     }
+}
+
+PG_FUNCTION_INFO_V1(bm_metap);
+
+/* -------------------------------------
+ * Get bitmap meta page information
+ * 
+ * Usage: SELECT * FROM bm_metap('index_name')
+ */
+
+Datum bm_metap(PG_FUNCTION_ARGS) {
+    text	   *relname = PG_GETARG_TEXT_PP(0);
+	Datum		result;
+	Relation	rel;
+	RangeVar   *relrv;
+	BitmapMetaPageData *meta;
+	TupleDesc	tupleDesc;
+	int			j;
+	char	   *values[9];
+	Buffer		buffer;
+	Page		page;
+	HeapTuple	tuple;
+
+    if (!superuser())
+		ereport(ERROR,
+				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+				 errmsg("must be superuser to use pageinspect functions")));
+
+	relrv = makeRangeVarFromNameList(textToQualifiedNameList(relname));
+	rel = relation_openrv(relrv, AccessShareLock);
+
+	if (rel->rd_rel->relkind != RELKIND_INDEX)
+		ereport(ERROR, (errcode(ERRCODE_WRONG_OBJECT_TYPE),
+        	 errmsg("\"%s\" is not a %s index",
+						RelationGetRelationName(rel), "bitmap")));
+
+    buffer = ReadBuffer(rel, 0);
+	LockBuffer(buffer, BUFFER_LOCK_SHARE);
+
+	page = BufferGetPage(buffer);
+	meta = BitmapPageGetMeta(page);
+
+    if (get_call_result_type(fcinfo, NULL, &tupleDesc) != TYPEFUNC_COMPOSITE)
+		elog(ERROR, "return type must be a row type");
+
+    j = 0;
+    values[j++] = psprintf("0x%X", meta->magic);
+    values[j++] = psprintf("%u", meta->ndistinct);
+    values[j++] = psprintf("%u", meta->valBlkEnd);
+
+	tuple = BuildTupleFromCStrings(TupleDescGetAttInMetadata(tupleDesc), values);
+	result = HeapTupleGetDatum(tuple);
+
+	UnlockReleaseBuffer(buffer);
+	relation_close(rel, AccessShareLock);
+
+	PG_RETURN_DATUM(result);
 }
