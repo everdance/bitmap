@@ -205,6 +205,9 @@ Datum bm_metap(PG_FUNCTION_ARGS) {
 	Buffer		buffer;
 	Page		page;
 	HeapTuple	tuple;
+    int max_block_shown = 10;
+    int i;
+    StringInfoData strinfo;
 
     if (!superuser())
 		ereport(ERROR,
@@ -232,6 +235,13 @@ Datum bm_metap(PG_FUNCTION_ARGS) {
     values[j++] = psprintf("0x%X", meta->magic);
     values[j++] = psprintf("%u", meta->ndistinct);
     values[j++] = psprintf("%u", meta->valBlkEnd);
+
+    initStringInfo(&strinfo);
+    for (i = 0; i < meta->ndistinct && i < max_block_shown; i++) {
+        if (i > 0) appendStringInfoString(&strinfo, ", ");
+        appendStringInfoString(&strinfo, psprintf("%u", meta->firstBlk[i]));
+    }
+    values[j++] = strinfo.data;
 
 	tuple = BuildTupleFromCStrings(TupleDescGetAttInMetadata(tupleDesc), values);
 	result = HeapTupleGetDatum(tuple);
