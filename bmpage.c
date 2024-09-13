@@ -9,6 +9,7 @@
 #include <utils/varlena.h>
 #include <utils/rel.h>
 #include <utils/lsyscache.h>
+#include <utils/builtins.h>
 #include <miscadmin.h>
 
 #include "bitmap.h"
@@ -319,15 +320,15 @@ Datum bm_valuep(PG_FUNCTION_ARGS) {
 		UnlockReleaseBuffer(buffer);
 		relation_close(rel, AccessShareLock);
 
-        MemoryContextSwitchTo(mctx);
-
         if (get_call_result_type(fcinfo, NULL, &tupleDesc) != TYPEFUNC_COMPOSITE)
 			elog(ERROR, "return type must be a row type");
-        
+
 		tupleDesc = BlessTupleDesc(tupleDesc);
-        ccdata->tupd = tupleDesc;
+        ccdata->tupd = CreateTupleDescCopy(tupleDesc);
         ccdata->offset = FirstOffsetNumber;
         fctx->user_fctx = ccdata;
+        
+        MemoryContextSwitchTo(mctx);
     }
 
     fctx = SRF_PERCALL_SETUP();
@@ -352,8 +353,10 @@ Datum bm_valuep(PG_FUNCTION_ARGS) {
         for (int i = 0; i < ccdata->indexTupDesc->natts; i++)
             if (!isnull[i]) rnull[1] = false;
 
+        initStringInfo(&s);
         values_to_string(&s, ccdata->indexTupDesc, values, isnull);
-        rvalues[1] = PointerGetDatum(s.data);
+
+        rvalues[1] = PointerGetDatum(cstring_to_text(s.data));
 		tuple = heap_form_tuple(ccdata->tupd, rvalues, rnull);
 
 		SRF_RETURN_NEXT(fctx, HeapTupleGetDatum(tuple));
@@ -389,7 +392,8 @@ static void values_to_string(StringInfo s, TupleDesc tupdesc, Datum *values, boo
 
         if (!typisvarlena)
         {
-            appendStringInfoString(s, OidOutputFunctionCall(typoutput, origval));
+            char *val = OidOutputFunctionCall(typoutput, origval);
+            appendStringInfoString(s, val);
         }
         else {
             Datum val;
