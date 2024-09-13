@@ -24,3 +24,11 @@ CREATE FUNCTION bm_metap(IN relname text,
     OUT first_blks text)
 AS 'MODULE_PATHNAME', 'bm_metap'
 LANGUAGE C STRICT PARALLEL SAFE;
+
+
+CREATE FUNCTION bm_valuep(IN relname text, IN blkno int8,
+    OUT index int4,
+    OUT data text)
+RETURNS SETOF record
+AS 'MODULE_PATHNAME', 'bm_valuep'
+LANGUAGE C STRICT PARALLEL SAFE;

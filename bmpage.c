@@ -7,9 +7,13 @@
 #include <access/relation.h>
 #include <catalog/namespace.h>
 #include <utils/varlena.h>
+#include <utils/rel.h>
+#include <utils/lsyscache.h>
 #include <miscadmin.h>
 
 #include "bitmap.h"
+
+static void values_to_string(StringInfo s, TupleDesc tupdesc, Datum *values, bool *nulls);
 
 bool bm_page_add_tup(Page page, BitmapTuple *tuple) {
   BitmapTuple *itup;
@@ -176,6 +180,9 @@ void bm_flush_cached(Relation index, BitmapBuildState *state) {
                 UnlockReleaseBuffer(prevbuff);
             }
 
+            if (state->firstBlks[i] == InvalidBlockNumber)
+                state->firstBlks[i] = BufferGetBlockNumber(buffer);
+
             xlogstate = GenericXLogStart(index);
             page = GenericXLogRegisterBuffer(xlogstate, buffer, GENERIC_XLOG_FULL_IMAGE);
             memcpy(page, bufpage, BLCKSZ);
@@ -183,6 +190,25 @@ void bm_flush_cached(Relation index, BitmapBuildState *state) {
             UnlockReleaseBuffer(buffer);
         }
     }
+}
+
+static Relation _bm_get_relation_by_name(text *name) {
+    Relation	rel;
+	RangeVar   *relrv;
+
+    if (!superuser())
+		ereport(ERROR,
+				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+				 errmsg("must be superuser to use pageinspect functions")));
+
+	relrv = makeRangeVarFromNameList(textToQualifiedNameList(name));
+	rel = relation_openrv(relrv, AccessShareLock);
+
+	if (rel->rd_rel->relkind != RELKIND_INDEX)
+		ereport(ERROR, (errcode(ERRCODE_WRONG_OBJECT_TYPE),
+        	 errmsg("\"%s\" is not a %s index",
+						RelationGetRelationName(rel), "bitmap")));
+    return rel;
 }
 
 PG_FUNCTION_INFO_V1(bm_metap);
@@ -195,32 +221,18 @@ PG_FUNCTION_INFO_V1(bm_metap);
 
 Datum bm_metap(PG_FUNCTION_ARGS) {
     text	   *relname = PG_GETARG_TEXT_PP(0);
+    Relation rel = _bm_get_relation_by_name(relname);
 	Datum		result;
-	Relation	rel;
-	RangeVar   *relrv;
 	BitmapMetaPageData *meta;
-	TupleDesc	tupleDesc;
-	int			j;
-	char	   *values[9];
 	Buffer		buffer;
 	Page		page;
 	HeapTuple	tuple;
-    int max_block_shown = 10;
-    int i;
+    TupleDesc	tupleDesc;
+    int         max_block_shown = 10;
+    int         i;
+	int			j;
+	char	   *values[4];
     StringInfoData strinfo;
-
-    if (!superuser())
-		ereport(ERROR,
-				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
-				 errmsg("must be superuser to use pageinspect functions")));
-
-	relrv = makeRangeVarFromNameList(textToQualifiedNameList(relname));
-	rel = relation_openrv(relrv, AccessShareLock);
-
-	if (rel->rd_rel->relkind != RELKIND_INDEX)
-		ereport(ERROR, (errcode(ERRCODE_WRONG_OBJECT_TYPE),
-        	 errmsg("\"%s\" is not a %s index",
-						RelationGetRelationName(rel), "bitmap")));
 
     buffer = ReadBuffer(rel, 0);
 	LockBuffer(buffer, BUFFER_LOCK_SHARE);
@@ -250,4 +262,139 @@ Datum bm_metap(PG_FUNCTION_ARGS) {
 	relation_close(rel, AccessShareLock);
 
 	PG_RETURN_DATUM(result);
+}
+
+
+/*
+ * cross-call data structure for SRF
+ */
+struct CrossCallData
+{
+	Page		page;
+	OffsetNumber offset;
+    TupleDesc  indexTupDesc;
+	TupleDesc	tupd;
+};
+
+
+PG_FUNCTION_INFO_V1(bm_valuep);
+
+/* -------------------------------------
+ * Get bitmap value page information
+ * 
+ * Usage: SELECT * FROM bm_valuep('index_name', blkno)
+ */
+
+Datum bm_valuep(PG_FUNCTION_ARGS) {
+    text	   *relname = PG_GETARG_TEXT_PP(0);
+    BlockNumber blkno = PG_GETARG_INT32(1);
+    FuncCallContext *fctx;
+	MemoryContext mctx;
+    struct CrossCallData *ccdata;
+
+    if (SRF_IS_FIRSTCALL())
+	{
+        Relation rel;
+        Buffer buffer;
+        TupleDesc	tupleDesc;
+        fctx = SRF_FIRSTCALL_INIT();
+        rel = _bm_get_relation_by_name(relname);
+
+        if (blkno < BITMAP_VALPAGE_START_BLKNO || blkno > MaxBlockNumber)
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+					 errmsg("invalid block number")));
+        
+        buffer = ReadBuffer(rel, blkno);
+		LockBuffer(buffer, BUFFER_LOCK_SHARE);
+
+        mctx = MemoryContextSwitchTo(fctx->multi_call_memory_ctx);
+
+		ccdata = palloc(sizeof(struct CrossCallData));
+		ccdata->page = palloc(BLCKSZ);
+		memcpy(ccdata->page, BufferGetPage(buffer), BLCKSZ);
+        ccdata->indexTupDesc = CreateTupleDescCopy(RelationGetDescr(rel));
+        fctx->max_calls = PageGetMaxOffsetNumber(ccdata->page);
+
+		UnlockReleaseBuffer(buffer);
+		relation_close(rel, AccessShareLock);
+
+        MemoryContextSwitchTo(mctx);
+
+        if (get_call_result_type(fcinfo, NULL, &tupleDesc) != TYPEFUNC_COMPOSITE)
+			elog(ERROR, "return type must be a row type");
+        
+		tupleDesc = BlessTupleDesc(tupleDesc);
+        ccdata->tupd = tupleDesc;
+        ccdata->offset = FirstOffsetNumber;
+        fctx->user_fctx = ccdata;
+    }
+
+    fctx = SRF_PERCALL_SETUP();
+	ccdata = fctx->user_fctx;
+
+	if (fctx->call_cntr < fctx->max_calls)
+	{
+        ItemId		itid = PageGetItemId(ccdata->page, ccdata->offset);
+        IndexTuple	idxtuple = (IndexTuple) PageGetItem(ccdata->page, itid);
+        Datum		values[INDEX_MAX_KEYS];
+		bool		isnull[INDEX_MAX_KEYS];
+        Datum	    rvalues[2];
+        bool        rnull[2] = {false, true};
+        StringInfoData s;
+        HeapTuple tuple;
+
+        rvalues[0] = UInt16GetDatum(ccdata->offset);
+        ccdata->offset++;
+
+        index_deform_tuple(idxtuple, ccdata->indexTupDesc, values, isnull);
+
+        for (int i = 0; i < ccdata->indexTupDesc->natts; i++)
+            if (!isnull[i]) rnull[1] = false;
+
+        values_to_string(&s, ccdata->indexTupDesc, values, isnull);
+        rvalues[1] = PointerGetDatum(s.data);
+		tuple = heap_form_tuple(ccdata->tupd, rvalues, rnull);
+
+		SRF_RETURN_NEXT(fctx, HeapTupleGetDatum(tuple));
+	}
+
+	SRF_RETURN_DONE(fctx);
+}
+
+static void values_to_string(StringInfo s, TupleDesc tupdesc, Datum *values, bool *nulls) {
+    int natt;
+
+    for (natt = 0; natt < tupdesc->natts; natt++) {
+		Form_pg_attribute attr; /* the attribute itself */
+		Oid			typid;		/* type of current attribute */
+		Oid			typoutput;	/* output function */
+		bool		typisvarlena;
+		Datum		origval;	/* possibly toasted Datum */
+		bool		isnull;		/* column is null? */
+
+        attr = TupleDescAttr(tupdesc, natt);
+        typid = attr->atttypid;
+        origval = values[natt];
+        isnull = nulls[natt];
+
+        if (natt > 0) appendStringInfoChar(s, ',');
+
+        if (isnull) {
+            appendStringInfoString(s, "null");
+            continue;
+        }
+
+        getTypeOutputInfo(typid, &typoutput, &typisvarlena);
+
+        if (!typisvarlena)
+        {
+            appendStringInfoString(s, OidOutputFunctionCall(typoutput, origval));
+        }
+        else {
+            Datum val;
+            val = PointerGetDatum(PG_DETOAST_DATUM(origval));
+            appendStringInfoString(s, OidOutputFunctionCall(typoutput, val));
+        }
+    }
 }
