@@ -32,3 +32,11 @@ CREATE FUNCTION bm_valuep(IN relname text, IN blkno int8,
 RETURNS SETOF record
 AS 'MODULE_PATHNAME', 'bm_valuep'
 LANGUAGE C STRICT PARALLEL SAFE;
+
+CREATE FUNCTION bm_indexp(IN relname text, IN blkno int8,
+    OUT index int4,
+    OUT heap_blk int4,
+    OUT bitmap text)
+RETURNS SETOF record
+AS 'MODULE_PATHNAME', 'bm_indexp'
+LANGUAGE C STRICT PARALLEL SAFE;

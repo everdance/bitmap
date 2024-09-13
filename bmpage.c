@@ -365,6 +365,88 @@ Datum bm_valuep(PG_FUNCTION_ARGS) {
 	SRF_RETURN_DONE(fctx);
 }
 
+PG_FUNCTION_INFO_V1(bm_indexp);
+
+/* -------------------------------------
+ * Get bitmap value page information
+ * 
+ * Usage: SELECT * FROM bm_indexp('index_name', blkno)
+ */
+
+Datum bm_indexp(PG_FUNCTION_ARGS) {
+    text	   *relname = PG_GETARG_TEXT_PP(0);
+    BlockNumber blkno = PG_GETARG_INT32(1);
+    FuncCallContext *fctx;
+	MemoryContext mctx;
+    struct CrossCallData *ccdata;
+
+    if (SRF_IS_FIRSTCALL())
+	{
+        Relation rel;
+        Buffer buffer;
+        TupleDesc	tupleDesc;
+
+        fctx = SRF_FIRSTCALL_INIT();
+        rel = _bm_get_relation_by_name(relname);
+
+        if (blkno < BITMAP_VALPAGE_START_BLKNO + 1 || blkno > MaxBlockNumber)
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+					 errmsg("invalid block number")));
+        
+        buffer = ReadBuffer(rel, blkno);
+		LockBuffer(buffer, BUFFER_LOCK_SHARE);
+
+        mctx = MemoryContextSwitchTo(fctx->multi_call_memory_ctx);
+
+		ccdata = palloc(sizeof(struct CrossCallData));
+		ccdata->page = palloc(BLCKSZ);
+		memcpy(ccdata->page, BufferGetPage(buffer), BLCKSZ);
+        fctx->max_calls = BitmapPageGetOpaque(ccdata->page)->maxoff;
+
+		UnlockReleaseBuffer(buffer);
+		relation_close(rel, AccessShareLock);
+
+        if (get_call_result_type(fcinfo, NULL, &tupleDesc) != TYPEFUNC_COMPOSITE)
+			elog(ERROR, "return type must be a row type");
+
+		tupleDesc = BlessTupleDesc(tupleDesc);
+        ccdata->tupd = CreateTupleDescCopy(tupleDesc);
+        ccdata->offset = FirstOffsetNumber;
+        fctx->user_fctx = ccdata;
+        
+        MemoryContextSwitchTo(mctx);
+    }
+
+    fctx = SRF_PERCALL_SETUP();
+	ccdata = fctx->user_fctx;
+
+	if (fctx->call_cntr < fctx->max_calls)
+	{
+        BitmapTuple*	bmtuple = BitmapPageGetTuple(ccdata->page, ccdata->offset);
+        Datum	    rvalues[3];
+        bool        rnull[3] = {false, false, false};
+        StringInfoData s;
+        HeapTuple tuple;
+        int        i;
+
+        rvalues[0] = UInt16GetDatum(ccdata->offset);
+        rvalues[1] = UInt32GetDatum(bmtuple->heapblk);
+        ccdata->offset++;
+
+        initStringInfo(&s);
+        for (i = 0; i < MAX_BITS_32; i++)
+            appendStringInfo(&s,"%X ", bmtuple->bm[i]);
+
+        rvalues[2] = PointerGetDatum(cstring_to_text(s.data));
+		tuple = heap_form_tuple(ccdata->tupd, rvalues, rnull);
+
+		SRF_RETURN_NEXT(fctx, HeapTupleGetDatum(tuple));
+	}
+
+	SRF_RETURN_DONE(fctx);
+}
+
 static void values_to_string(StringInfo s, TupleDesc tupdesc, Datum *values, bool *nulls) {
     int natt;
 
