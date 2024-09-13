@@ -20,7 +20,8 @@ OBJS = \
 	bmtuple.o \
 	bmvacuum.o \
 	bmvalidate.o \
-	bmxlog.o
+	bmxlog.o \
+	bminspect.o
 
 PG_CONFIG = pg_config
 PGXS := $(shell $(PG_CONFIG) --pgxs)
