@@ -36,6 +36,31 @@ bool bm_page_add_tup(Page page, BitmapTuple *tuple) {
   return true;
 }
 
+BlockNumber bm_get_firstblk(Relation index, int valIdx) {
+  Page page;
+  BlockNumber blkno;
+  int idx;
+  Buffer buffer;
+  BitmapMetaPageData *meta;
+
+  Assert(valIdx >= 0);
+
+  buffer = ReadBuffer(index, BITMAP_METAPAGE_BLKNO);
+  LockBuffer(buffer, BUFFER_LOCK_SHARE);
+
+  page = BufferGetPage(buffer);
+  meta = BitmapPageGetMeta(page);
+
+  Assert(meta->magic == BITMAP_MAGIC_NUMBER);
+  Assert(meta->ndistinct > valIdx);
+
+  blkno = meta->firstBlk[valIdx];
+  UnlockReleaseBuffer(buffer);
+
+  return blkno;
+}
+
+
 int bm_get_val_index(Relation index, Datum *values, bool *isnull) {
   Page page;
   BlockNumber blkno;
@@ -49,6 +74,7 @@ int bm_get_val_index(Relation index, Datum *values, bool *isnull) {
 
   do {
     buffer = ReadBuffer(index, blkno);
+    LockBuffer(buffer, BUFFER_LOCK_SHARE);
     page = BufferGetPage(buffer);
     maxoff = PageGetMaxOffsetNumber(page);
 
@@ -56,7 +82,7 @@ int bm_get_val_index(Relation index, Datum *values, bool *isnull) {
       ItemId		itid = PageGetItemId(page, off);
       IndexTuple	idxtuple = (IndexTuple) PageGetItem(page, itid);
       if (bm_vals_equal(index, values, isnull, idxtuple)) {
-        ReleaseBuffer(buffer);
+        UnlockReleaseBuffer(buffer);
         return idx;
       }
 
@@ -65,7 +91,7 @@ int bm_get_val_index(Relation index, Datum *values, bool *isnull) {
 
     opaque = BitmapPageGetOpaque(page);
     blkno = opaque->nextBlk;
-    ReleaseBuffer(buffer);
+    UnlockReleaseBuffer(buffer);
   } while (BlockNumberIsValid(blkno));
 
   return -1;

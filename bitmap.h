@@ -51,7 +51,9 @@ typedef BitmapPageSpecData *BitmapPageOpaque;
 
 typedef struct BitmapOptions {} BitmapOptions;
 
-#define MAX_BITS_32 (220/32 + 1)
+#define MAX_HEAP_TUPLE_PER_PAGE 220
+
+#define MAX_BITS_32 (MAX_HEAP_TUPLE_PER_PAGE/32 + 1)
 
 typedef struct BitmapTuple {
   BlockNumber heapblk;
@@ -76,6 +78,17 @@ typedef struct BitmapBuildState
   MemoryContext tmpCtx;
   PGAlignedBlock **blocks;
 } BitmapBuildState;
+
+typedef struct BitmapScanOpaqueData
+{
+  int32 keyIndex;
+  BlockNumber firstBlk;
+  BlockNumber currentBlk;
+  OffsetNumber offset;
+  OffsetNumber tupleOffset;
+} BitmapScanOpaqueData;
+
+typedef BitmapScanOpaqueData *BitmapScanOpaque;
 
 typedef struct xl_bm_insert
 {
@@ -117,8 +130,10 @@ extern Buffer bm_newbuf_exlocked(Relation index);
 extern void bm_init_page(Page page, uint16 pgtype);
 extern void bm_init_metapage(Relation index, ForkNumber fork);
 extern void bm_flush_cached(Relation index, BitmapBuildState *state);
+extern BlockNumber bm_get_firstblk(Relation index, int valIdx);
 
 
 extern BitmapTuple *bitmap_form_tuple(ItemPointer ctid);
 extern bool bm_vals_equal(Relation index, Datum *cmpVals, bool *cmpIsnull, IndexTuple itup);
+extern ItemPointer *bm_tuple_to_tids(BitmapTuple *tup, int *count);
 #endif

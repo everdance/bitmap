@@ -13,6 +13,27 @@ BitmapTuple *bitmap_form_tuple(ItemPointer ctid) {
   return tuple;
 }
 
+ItemPointer *bm_tuple_to_tids(BitmapTuple *tup, int *count) {
+  int i;
+  int n = 0;
+
+  ItemPointerData *tids = palloc0(sizeof(ItemPointerData) *MAX_HEAP_TUPLE_PER_PAGE);
+
+  for (i = 0; i < MAX_HEAP_TUPLE_PER_PAGE; i++) {
+    if (0x1 << (i%32) & (tup->bm[i/32])) {
+      tids[n].ip_blkid.bi_hi = tup->heapblk >> 16;
+      tids[n].ip_blkid.bi_lo = tup->heapblk & 0xffff;
+      tids[n].ip_posid = i+1;
+      n++;
+    }
+  }
+
+  *count = n;
+  
+  return tids;
+}
+
+
 bool bm_vals_equal(Relation index, Datum *cmpVals, bool *cmpIsnull, IndexTuple itup) {
   Datum		values[INDEX_MAX_KEYS];
   bool		isnull[INDEX_MAX_KEYS];
