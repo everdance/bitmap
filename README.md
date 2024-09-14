@@ -2,6 +2,25 @@
 
 This is a bitmap index access method extension for PostgreSQL. The advantageous use case of this index is for large tables with columns that have very few distinctive values. With bitmap index on these columns, the access method can generate heap tid map efficiently as the bitmap for heap tuples are organised by distinctive values and bulkly grouped in one index tuple for each heap block.
 
+## Compile, Install and Test
+
+To compile and install the extension:
+
+```bash
+> make
+> make install
+```
+
+```bash
+> make clean
+```
+
+test
+
+```bash
+> make installcheck
+```
+
 ## Design
 
 The index does not make assumption or require user's input on the number of distinctive values. However, there's a limit set by how many block number entries we can store in the single meta page. With 8192 block size, the access method can index maximumly 2042 distinctive values which is sufficient for intended bitmap use cases.
@@ -36,6 +55,8 @@ The native brin/bloom access method is a very lightweight but lossy index. It st
 
 ### Space Comparisions
 
+Heap table
+
 ```sql
 postgres=# INSERT INTO tst SELECT i%2, substr(md5(i::text), 1, 1) FROM generate_series(1,2000000) i;
 INSERT 0 2000000
@@ -47,7 +68,7 @@ postgres=# select relpages from pg_class where relname = 'tst';
 (1 row)
 ```
 
-Bitmap index
+Bitmap
 
 ```sql
 postgres=# CREATE INDEX bitmapidx ON tst USING bitmap (i);
@@ -62,7 +83,7 @@ postgres=# select relpages from pg_class where relname = 'bitmapidx';
 
 Bloom
 
----sql
+```sql
 postgres=# create index bloom_idx_tst on tst using bloom (i) with (length=1, col1=1);
 CREATE INDEX
 postgres=# select relpages from pg_class where relname = 'bloom_idx_tst';            
@@ -74,7 +95,7 @@ postgres=# select relpages from pg_class where relname = 'bloom_idx_tst';
 
 Brin
 
----sql
+```sql
 postgres=# create index brin_idx_tst on tst using brin (i) with (pages_per_range=1);
 CREATE INDEX
 postgres=# select relpages from pg_class where relname = 'brin_idx_tst';
@@ -86,7 +107,7 @@ postgres=# select relpages from pg_class where relname = 'brin_idx_tst';
 
 Btree
 
----sql
+```sql
 postgres=# create index breetst on tst using btree(i);
 CREATE INDEX
 postgres=# select relpages from pg_class where relname = 'breetst';
@@ -97,23 +118,6 @@ postgres=# select relpages from pg_class where relname = 'breetst';
 
 ```
 
-## Compile and Install
-
-To compile and install the extension:
-
-```bash
-> make
-> make install
-```
-
-To clean
-
-```bash
-> make clean
-```
-
-Note, that depending on installation location, installing the
-extension might require super-user permissions.
 
 ## Page Inspection Functions
 
@@ -173,9 +177,4 @@ postgres=# select relpages from pg_class where relname = 'tst';
         9
 (1 row)
 
-```
-## Test
-
-```bash
-> make installcheck
 ```
