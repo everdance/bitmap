@@ -52,6 +52,65 @@ To clean
 Note, that depending on installation location, installing the
 extension might require super-user permissions.
 
+## Page Inspection Functions
+
+```sql
+postgres=# create index bitmapidx on tst using bitmap (i);
+CREATE INDEX
+postgres=# select * from bm_valuep('bitmapidx',1);
+ index | data 
+-------+------
+     1 | 1
+     2 | 0
+(2 rows)
+
+postgres=# select * from bm_metap('bitmapidx');
+   magic    | ndistinct | val_endblk | first_blks 
+------------+-----------+------------+------------
+ 0xDABC9876 |         2 |          1 | 2, 3
+(1 row)
+
+postgres=# select * from bm_indexp('bitmapidx',2);
+ index | heap_blk |                             bitmap                              
+-------+----------+-----------------------------------------------------------------
+     1 |        0 | AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA 
+     2 |        1 | AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA 
+     3 |        2 | AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA 
+     4 |        3 | AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA 
+     5 |        4 | AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA 
+     6 |        5 | AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA 
+     7 |        6 | AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA 
+     8 |        7 | AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA 
+     9 |        8 | AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA 0 
+(9 rows)
+
+postgres=# select * from bm_indexp('bitmapidx',3);
+ index | heap_blk |                             bitmap                              
+-------+----------+-----------------------------------------------------------------
+     1 |        0 | 55555554 55555555 55555555 55555555 55555555 55555555 55555555 
+     2 |        1 | 55555554 55555555 55555555 55555555 55555555 55555555 55555555 
+     3 |        2 | 55555554 55555555 55555555 55555555 55555555 55555555 55555555 
+     4 |        3 | 55555554 55555555 55555555 55555555 55555555 55555555 55555555 
+     5 |        4 | 55555554 55555555 55555555 55555555 55555555 55555555 55555555 
+     6 |        5 | 55555554 55555555 55555555 55555555 55555555 55555555 55555555 
+     7 |        6 | 55555554 55555555 55555555 55555555 55555555 55555555 55555555 
+     8 |        7 | 55555554 55555555 55555555 55555555 55555555 55555555 55555555 
+     9 |        8 | 55555554 55555555 55555555 55555555 55555555 55555555 1 
+(9 rows)
+
+postgres=# select relpages from pg_class where relname = 'bitmapidx';
+ relpages 
+----------
+        4
+(1 row)
+
+postgres=# select relpages from pg_class where relname = 'tst';
+ relpages 
+----------
+        9
+(1 row)
+
+```
 ## Test
 
 ```bash
