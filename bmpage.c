@@ -171,6 +171,9 @@ void bm_flush_cached(Relation index, BitmapBuildState *state) {
                 UnlockReleaseBuffer(prevbuff);
             }
 
+            if (state->firstBlks[i] == InvalidBlockNumber)
+                state->firstBlks[i] = BufferGetBlockNumber(buffer);
+
             xlogstate = GenericXLogStart(index);
             page = GenericXLogRegisterBuffer(xlogstate, buffer, GENERIC_XLOG_FULL_IMAGE);
             memcpy(page, bufpage, BLCKSZ);

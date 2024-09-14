@@ -16,3 +16,27 @@ AS
     OPERATOR        1       =(int4, int4),
     FUNCTION        1       btint4cmp(int4,int4),
 STORAGE         int4;
+
+CREATE FUNCTION bm_metap(IN relname text,
+    OUT magic text,
+    OUT ndistinct int8,
+    OUT val_endblk int8,
+    OUT first_blks text)
+AS 'MODULE_PATHNAME', 'bm_metap'
+LANGUAGE C STRICT PARALLEL SAFE;
+
+
+CREATE FUNCTION bm_valuep(IN relname text, IN blkno int8,
+    OUT index int4,
+    OUT data text)
+RETURNS SETOF record
+AS 'MODULE_PATHNAME', 'bm_valuep'
+LANGUAGE C STRICT PARALLEL SAFE;
+
+CREATE FUNCTION bm_indexp(IN relname text, IN blkno int8,
+    OUT index int4,
+    OUT heap_blk int4,
+    OUT bitmap text)
+RETURNS SETOF record
+AS 'MODULE_PATHNAME', 'bm_indexp'
+LANGUAGE C STRICT PARALLEL SAFE;
