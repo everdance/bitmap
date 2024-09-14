@@ -34,6 +34,69 @@ This bitmap index differs from other bloom indexes that it does not use hashed c
 
 The native brin/bloom access method is a very lightweight but lossy index. It store heap block level bitmaps. It uses hash to compute the bitmap for minimumly one heap block or more commonly a range of blocks. Bloom method in contrib module indexes table at heap tuple level storing both heap tuple pointer and hashed value of index keys, it's much bulky that the bitmap index approach here. 
 
+### Space Comparisions
+
+```sql
+postgres=# INSERT INTO tst SELECT i%2, substr(md5(i::text), 1, 1) FROM generate_series(1,2000000) i;
+INSERT 0 2000000
+
+postgres=# select relpages from pg_class where relname = 'tst';
+ relpages 
+----------
+     8850
+(1 row)
+```
+
+Bitmap index
+
+```sql
+postgres=# CREATE INDEX bitmapidx ON tst USING bitmap (i);
+CREATE INDEX
+
+postgres=# select relpages from pg_class where relname = 'bitmapidx';
+ relpages 
+----------
+       72
+(1 row)
+```
+
+Bloom
+
+---sql
+postgres=# create index bloom_idx_tst on tst using bloom (i) with (length=1, col1=1);
+CREATE INDEX
+postgres=# select relpages from pg_class where relname = 'bloom_idx_tst';            
+ relpages 
+----------
+     1962
+(1 row)
+```
+
+Brin
+
+---sql
+postgres=# create index brin_idx_tst on tst using brin (i) with (pages_per_range=1);
+CREATE INDEX
+postgres=# select relpages from pg_class where relname = 'brin_idx_tst';
+ relpages 
+----------
+       30
+(1 row)
+```
+
+Btree
+
+---sql
+postgres=# create index breetst on tst using btree(i);
+CREATE INDEX
+postgres=# select relpages from pg_class where relname = 'breetst';
+ relpages 
+----------
+     1695
+(1 row)
+
+```
+
 ## Compile and Install
 
 To compile and install the extension:
