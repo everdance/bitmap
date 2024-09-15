@@ -39,7 +39,6 @@ bool bm_page_add_tup(Page page, BitmapTuple *tuple) {
 BlockNumber bm_get_firstblk(Relation index, int valIdx) {
   Page page;
   BlockNumber blkno;
-  int idx;
   Buffer buffer;
   BitmapMetaPageData *meta;
 

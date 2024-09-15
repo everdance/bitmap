@@ -49,7 +49,6 @@ bmgettuple(IndexScanDesc scan, ScanDirection dir)
     Relation index = scan->indexRelation;
     Datum values[INDEX_MAX_KEYS];
     bool  isnull[INDEX_MAX_KEYS];
-    Page page;
     Buffer buffer;
     BitmapPageOpaque opaque;
     int32 htupidx;
