@@ -82,10 +82,12 @@ typedef struct BitmapBuildState
 typedef struct BitmapScanOpaqueData
 {
   int32 keyIndex;
-  BlockNumber firstBlk;
-  BlockNumber currentBlk;
+  Page curPage; 
+  Buffer buf;
+  BlockNumber curBlk;
   OffsetNumber offset;
-  OffsetNumber tupleOffset;
+  OffsetNumber maxoffset;
+  int32 htupidx;
 } BitmapScanOpaqueData;
 
 typedef BitmapScanOpaqueData *BitmapScanOpaque;
@@ -111,6 +113,7 @@ extern IndexScanDesc bmbeginscan(Relation r, int nkeys, int norderbys);
 extern void bmrescan(IndexScanDesc scan, ScanKey scankey, int nscankeys,
               ScanKey orderbys, int norderbys);
 extern void bmendscan(IndexScanDesc scan);
+extern bool bmgettuple(IndexScanDesc scan, ScanDirection dir);
 extern int64 bmgetbitmap(IndexScanDesc scan, TIDBitmap *tbm);
 
 extern void bmcostestimate(PlannerInfo *root, IndexPath *path, double loop_count,
@@ -135,5 +138,6 @@ extern BlockNumber bm_get_firstblk(Relation index, int valIdx);
 
 extern BitmapTuple *bitmap_form_tuple(ItemPointer ctid);
 extern bool bm_vals_equal(Relation index, Datum *cmpVals, bool *cmpIsnull, IndexTuple itup);
-extern ItemPointer *bm_tuple_to_tids(BitmapTuple *tup, int *count);
+extern int bm_tuple_to_tids(BitmapTuple *tup, ItemPointer tids);
+extern int bm_tuple_next_htpid(BitmapTuple *tup, ItemPointer tid, int start);
 #endif

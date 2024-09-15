@@ -7,10 +7,11 @@
 
 static void init_scan_opaque(BitmapScanOpaque so) {
     so->keyIndex = -1;
-    so->firstBlk = InvalidBlockNumber;
-    so->currentBlk = InvalidBlockNumber;
+    so->curPage = NULL;
+    so->curBlk = InvalidBlockNumber;
     so->offset = 0;
-    so->tupleOffset = 0;
+    so->maxoffset = 0;
+    so->htupidx = 0;
 }
 
 IndexScanDesc bmbeginscan(Relation r, int nkeys, int norderbys) {
@@ -44,15 +45,83 @@ void bmendscan(IndexScanDesc scan) {
 bool
 bmgettuple(IndexScanDesc scan, ScanDirection dir) 
 {
+    BitmapScanOpaque so = (BitmapScanOpaque) scan->opaque;
+    Relation index = scan->indexRelation;
+    Datum values[INDEX_MAX_KEYS];
+    bool  isnull[INDEX_MAX_KEYS];
+    Page page;
+    Buffer buffer;
+    BitmapPageOpaque opaque;
+    int32 htupidx;
+    BitmapTuple *itup;
+    int i;
+    ItemPointerData ipd;
+
     scan->xs_recheck = false;
+
+    if (so->keyIndex < 0) {
+        ScanKey skey = scan->keyData;
+
+        for (i = 0; i < scan->numberOfKeys; i++) {
+            if (skey->sk_flags & SK_ISNULL) {
+                isnull[i] = true;
+                continue;
+            }
+            values[i] = skey->sk_argument;
+            skey++;
+        }
+
+        so->keyIndex = bm_get_val_index(index, values, isnull);
+        if (so->keyIndex < 0)
+            return false;
+        
+        so->curBlk = bm_get_firstblk(index, so->keyIndex);
+    }
+
+
+    while (so->curBlk != InvalidBlockNumber) {
+        if (so->curPage == NULL) {
+            buffer = ReadBuffer(index, so->curBlk);
+            LockBuffer(buffer, BUFFER_LOCK_SHARE);
+            so->buf = buffer;
+
+            so->curPage = BufferGetPage(buffer);
+            opaque = BitmapPageGetOpaque(so->curPage);
+            so->maxoffset = opaque->maxoff;
+            so->offset = 1;
+       } 
+
+        itup = BitmapPageGetTuple(so->curPage, so->offset);
+        htupidx = bm_tuple_next_htpid(itup, &ipd, so->htupidx);
+
+        if (htupidx >= 0) {
+            so->htupidx = htupidx;
+            scan->xs_heaptid = ipd;
+            scan->xs_heap_continue = true;
+            return true;
+        }
+
+        so->htupidx = 0;
+        if (so->offset < so->maxoffset) {
+            so->offset++;
+            continue;
+        }
+
+        opaque = BitmapPageGetOpaque(so->curPage);
+        so->curBlk = opaque->nextBlk;
+        UnlockReleaseBuffer(so->buf);
+        so->curPage = NULL;
+    }
+
+    scan->xs_heap_continue = false;
+    return false;
 }
 
-int64 bmgetbitmap(IndexScanDesc scan, TIDBitmap *tbm){
+int64 bmgetbitmap(IndexScanDesc scan, TIDBitmap *tbm) {
     int64 ntids = 0;
     BitmapScanOpaque so = (BitmapScanOpaque) scan->opaque;
     Relation index = scan->indexRelation;
     int i;
-    BlockNumber blkno;
     Datum values[INDEX_MAX_KEYS];
     bool  isnull[INDEX_MAX_KEYS];
     Page page;
@@ -60,7 +129,7 @@ int64 bmgetbitmap(IndexScanDesc scan, TIDBitmap *tbm){
     BitmapPageOpaque opaque;
     OffsetNumber offset, maxoffset;
     BitmapTuple *itup;
-    ItemPointer  *tids;
+    ItemPointer tids = palloc0(sizeof(ItemPointerData) * MAX_HEAP_TUPLE_PER_PAGE);
 
     if (so->keyIndex < 0) {
         ScanKey skey = scan->keyData;
@@ -79,13 +148,11 @@ int64 bmgetbitmap(IndexScanDesc scan, TIDBitmap *tbm){
         if (so->keyIndex < 0)
             return 0;
         
-        so->firstBlk = bm_get_firstblk(index, so->keyIndex);
-        so->currentBlk = so->firstBlk;
+        so->curBlk = bm_get_firstblk(index, so->keyIndex);
     }
 
-    blkno = so->currentBlk;
-    while (blkno != InvalidBlockNumber) {
-        buffer = ReadBuffer(index, blkno);
+    while (so->curBlk != InvalidBlockNumber) {
+        buffer = ReadBuffer(index, so->curBlk);
         LockBuffer(buffer, BUFFER_LOCK_SHARE);
 
         page = BufferGetPage(buffer);
@@ -95,10 +162,13 @@ int64 bmgetbitmap(IndexScanDesc scan, TIDBitmap *tbm){
         for (offset = 1; offset <= maxoffset; offset++) {
             int count = 0;
             itup = BitmapPageGetTuple(page, offset);
-            tids = bm_tuple_to_tids(itup, &count);
+            count = bm_tuple_to_tids(itup, tids);
             tbm_add_tuples(tbm, tids, count, false);
             ntids += count;
         }
+
+        so->curBlk = opaque->nextBlk;
+        UnlockReleaseBuffer(buffer);
     }
 
     return ntids;

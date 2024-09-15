@@ -13,11 +13,9 @@ BitmapTuple *bitmap_form_tuple(ItemPointer ctid) {
   return tuple;
 }
 
-ItemPointer *bm_tuple_to_tids(BitmapTuple *tup, int *count) {
+int bm_tuple_to_tids(BitmapTuple *tup, ItemPointer tids) {
   int i;
   int n = 0;
-
-  ItemPointerData *tids = palloc0(sizeof(ItemPointerData) *MAX_HEAP_TUPLE_PER_PAGE);
 
   for (i = 0; i < MAX_HEAP_TUPLE_PER_PAGE; i++) {
     if (0x1 << (i%32) & (tup->bm[i/32])) {
@@ -28,9 +26,22 @@ ItemPointer *bm_tuple_to_tids(BitmapTuple *tup, int *count) {
     }
   }
 
-  *count = n;
-  
-  return tids;
+  return n;
+}
+
+int bm_tuple_next_htpid(BitmapTuple *tup, ItemPointer tid, int start) {
+  int i;
+
+  for (i = start + 1; i < MAX_HEAP_TUPLE_PER_PAGE; i++) {
+    if (0x1 << (i%32) & (tup->bm[i/32])) {
+      tid->ip_blkid.bi_hi = tup->heapblk >> 16;
+      tid->ip_blkid.bi_lo = tup->heapblk & 0xffff;
+      tid->ip_posid = i+1;
+      return i;
+    }
+  }
+
+  return -1;
 }
 
 

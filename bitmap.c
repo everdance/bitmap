@@ -364,7 +364,7 @@ Datum bmhandler(PG_FUNCTION_ARGS) {
 	amroutine->amadjustmembers = NULL;
 	amroutine->ambeginscan = bmbeginscan;
 	amroutine->amrescan = bmrescan;
-	amroutine->amgettuple = NULL;
+	amroutine->amgettuple = bmgettuple;
 	amroutine->amgetbitmap = bmgetbitmap;
 	amroutine->amendscan = bmendscan;
 	amroutine->ammarkpos = NULL;
