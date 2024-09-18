@@ -82,8 +82,7 @@ typedef struct BitmapBuildState
 typedef struct BitmapScanOpaqueData
 {
   int32 keyIndex;
-  Page curPage; 
-  Buffer buf;
+  Page curPage;
   BlockNumber curBlk;
   OffsetNumber offset;
   OffsetNumber maxoffset;

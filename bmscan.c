@@ -5,13 +5,17 @@
 
 #include "bitmap.h"
 
+static void reset_scan_for_next_page(BitmapScanOpaque so) {
+    so->offset = 0;
+    so->maxoffset = 0;
+    so->htupidx = 0;
+}
+
 static void init_scan_opaque(BitmapScanOpaque so) {
     so->keyIndex = -1;
     so->curPage = NULL;
     so->curBlk = InvalidBlockNumber;
-    so->offset = 0;
-    so->maxoffset = 0;
-    so->htupidx = 0;
+    reset_scan_for_next_page(so);
 }
 
 IndexScanDesc bmbeginscan(Relation r, int nkeys, int norderbys) {
@@ -39,7 +43,9 @@ void bmrescan(IndexScanDesc scan, ScanKey scankey, int nscankeys,
 }
 
 void bmendscan(IndexScanDesc scan) {
+    BitmapScanOpaque so = (BitmapScanOpaque) scan->opaque;
 
+    pfree(so->curPage);
 }
 
 bool
@@ -62,6 +68,7 @@ bmgettuple(IndexScanDesc scan, ScanDirection dir)
         ScanKey skey = scan->keyData;
 
         for (i = 0; i < scan->numberOfKeys; i++) {
+            isnull[i] = false;
             if (skey->sk_flags & SK_ISNULL) {
                 isnull[i] = true;
                 continue;
@@ -75,16 +82,19 @@ bmgettuple(IndexScanDesc scan, ScanDirection dir)
             return false;
         
         so->curBlk = bm_get_firstblk(index, so->keyIndex);
+        if (so->curPage == NULL) {
+            so->curPage = (Page) palloc(sizeof(PGAlignedBlock));
+        }
     }
 
 
     while (so->curBlk != InvalidBlockNumber) {
-        if (so->curPage == NULL) {
+        if (so->offset == 0) {
             buffer = ReadBuffer(index, so->curBlk);
             LockBuffer(buffer, BUFFER_LOCK_SHARE);
-            so->buf = buffer;
+            memcpy(so->curPage, BufferGetPage(buffer), sizeof(PGAlignedBlock));
+            UnlockReleaseBuffer(buffer);
 
-            so->curPage = BufferGetPage(buffer);
             opaque = BitmapPageGetOpaque(so->curPage);
             so->maxoffset = opaque->maxoff;
             so->offset = 1;
@@ -108,8 +118,7 @@ bmgettuple(IndexScanDesc scan, ScanDirection dir)
 
         opaque = BitmapPageGetOpaque(so->curPage);
         so->curBlk = opaque->nextBlk;
-        UnlockReleaseBuffer(so->buf);
-        so->curPage = NULL;
+        reset_scan_for_next_page(so);
     }
 
     scan->xs_heap_continue = false;

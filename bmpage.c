@@ -61,21 +61,20 @@ BlockNumber bm_get_firstblk(Relation index, int valIdx) {
 
 
 int bm_get_val_index(Relation index, Datum *values, bool *isnull) {
-  Page page;
-  BlockNumber blkno;
-  int idx;
+  BlockNumber blkno = BITMAP_VALPAGE_START_BLKNO;
+  int idx = 0;
   Buffer buffer;
+  Page page;
   OffsetNumber maxoff;
   BitmapPageOpaque opaque;
-  
-  blkno = BITMAP_VALPAGE_START_BLKNO;
-  idx = 0;
 
-  do {
+  while (BlockNumberIsValid(blkno)) {
     buffer = ReadBuffer(index, blkno);
     LockBuffer(buffer, BUFFER_LOCK_SHARE);
     page = BufferGetPage(buffer);
     maxoff = PageGetMaxOffsetNumber(page);
+
+    Assert(maxoff > 0);
 
     for (OffsetNumber off = FirstOffsetNumber; off <= maxoff; off = OffsetNumberNext(off)) {
       ItemId		itid = PageGetItemId(page, off);
@@ -91,7 +90,7 @@ int bm_get_val_index(Relation index, Datum *values, bool *isnull) {
     opaque = BitmapPageGetOpaque(page);
     blkno = opaque->nextBlk;
     UnlockReleaseBuffer(buffer);
-  } while (BlockNumberIsValid(blkno));
+  }
 
   return -1;
 }
@@ -99,7 +98,7 @@ int bm_get_val_index(Relation index, Datum *values, bool *isnull) {
 Buffer bm_newbuf_exlocked(Relation index) {
     Buffer		buffer;
 	
-    for (;;)
+  for (;;)
 	{
 		BlockNumber blkno = GetFreeIndexPage(index);
 		if (blkno == InvalidBlockNumber)
