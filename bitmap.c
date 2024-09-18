@@ -337,7 +337,7 @@ Datum bmhandler(PG_FUNCTION_ARGS) {
 	amroutine->amcanbackward = false;
 	amroutine->amcanunique = false;
 	amroutine->amcanmulticol = true;
-	amroutine->amoptionalkey = true;
+	amroutine->amoptionalkey = false;
 	amroutine->amsearcharray = false;
 	amroutine->amsearchnulls = true;
 	amroutine->amstorage = false;

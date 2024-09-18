@@ -7,8 +7,9 @@
 
 BitmapTuple *bitmap_form_tuple(ItemPointer ctid) {
   BitmapTuple *tuple = palloc0(sizeof(BitmapTuple));
+  OffsetNumber offset = ctid->ip_posid-1;
   tuple->heapblk = BlockIdGetBlockNumber(&ctid->ip_blkid);
-  tuple->bm[ctid->ip_posid/32] |= 0x1 << (ctid->ip_posid%32);
+  tuple->bm[offset/32] |= 0x1 << (offset%32);
   
   return tuple;
 }
