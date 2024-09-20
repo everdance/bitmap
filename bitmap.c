@@ -1,5 +1,6 @@
 #include <postgres.h>
 
+#include <fmgr.h>
 #include <string.h>
 #include <storage/bufmgr.h>
 #include <access/reloptions.h>
@@ -346,7 +347,7 @@ Datum bmhandler(PG_FUNCTION_ARGS) {
 	amroutine->amcanparallel = false;
 	amroutine->amcaninclude = false;
 	amroutine->amusemaintenanceworkmem = false;
-	amroutine->amparallelvacuumoptions =
+	amroutine->amparallebmoptionslvacuumoptions =
 		VACUUM_OPTION_PARALLEL_BULKDEL | VACUUM_OPTION_PARALLEL_CLEANUP;
 	amroutine->amkeytype = InvalidOid;
 
