@@ -68,7 +68,7 @@ Datum bm_metap(PG_FUNCTION_ARGS) {
     j = 0;
     values[j++] = psprintf("0x%X", meta->magic);
     values[j++] = psprintf("%u", meta->ndistinct);
-    values[j++] = psprintf("0x%x", meta->valBlkEnd);
+    values[j++] = psprintf("%u", meta->valBlkEnd);
 
     initStringInfo(&strinfo);
     for (i = 0; i < meta->ndistinct && i < max_block_shown; i++) {
