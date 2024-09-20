@@ -5,3 +5,4 @@ test/result/*.*
 test/regression.*
 *.o
 *.so
+typedefs.list
