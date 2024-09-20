@@ -3,6 +3,7 @@
 
 #include <fmgr.h>
 #include <time.h>
+#include <common/relpath.h>
 #include <access/amapi.h>
 #include <access/itup.h>
 #include <nodes/pathnodes.h>
