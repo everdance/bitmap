@@ -2,6 +2,7 @@
 
 #include <storage/bufmgr.h>
 #include <storage/indexfsm.h>
+#include <storage/lmgr.h>
 #include <access/generic_xlog.h>
 
 #include "bitmap.h"
@@ -137,10 +138,12 @@ Buffer bm_newbuf_exlocked(Relation index) {
 	}
 
 	/* extend the file */
-	buffer = ExtendBufferedRel(BMR_REL(index), MAIN_FORKNUM, NULL,
-							   EB_LOCK_FIRST);
-    
-    return buffer;
+  LockRelationForExtension(index, ExclusiveLock);
+	buffer = ReadBuffer(index, P_NEW);
+	LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);  
+  UnlockRelationForExtension(index, ExclusiveLock);
+  
+  return buffer;
 }
 
 void bm_init_page(Page page, uint16 pgtype) {
