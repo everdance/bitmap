@@ -2,4 +2,8 @@
 
 #include "bitmap.h"
 
-bool bmvalidate(Oid opclassoid) { return true; }
+bool
+bmvalidate(Oid opclassoid)
+{
+	return true;
+}
