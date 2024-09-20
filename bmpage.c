@@ -61,12 +61,26 @@ BlockNumber bm_get_firstblk(Relation index, int valIdx) {
 
 
 int bm_get_val_index(Relation index, Datum *values, bool *isnull) {
-  BlockNumber blkno = BITMAP_VALPAGE_START_BLKNO;
+  BlockNumber blkno;
   int idx = 0;
   Buffer buffer;
+  Buffer metabuf;
+  BitmapMetaPageData *metadata;
   Page page;
   OffsetNumber maxoff;
   BitmapPageOpaque opaque;
+
+  metabuf = ReadBuffer(index, BITMAP_METAPAGE_BLKNO);
+	LockBuffer(metabuf, BUFFER_LOCK_SHARE);
+  metadata = BitmapPageGetMeta(BufferGetPage(metabuf));
+  blkno = metadata->valBlkEnd;
+  UnlockReleaseBuffer(metabuf);
+
+  if (blkno == InvalidBlockNumber) {
+    return -1;
+  }
+
+  blkno = BITMAP_VALPAGE_START_BLKNO;
 
   while (BlockNumberIsValid(blkno)) {
     buffer = ReadBuffer(index, blkno);

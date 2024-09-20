@@ -65,14 +65,15 @@ static BlockNumber bm_insert_tuple(Relation index, BlockNumber blkno, ItemPointe
     blkno = opaque->nextBlk;
   }
 
-  blkno = bm_newbuf_exlocked(index);
+  nbuffer = bm_newbuf_exlocked(index);
+  blkno = BufferGetBlockNumber(nbuffer);
+
   if (buffer != InvalidBuffer) {
     opaque = BitmapPageGetOpaque(page);
     opaque->nextBlk = blkno;
     UnlockReleaseBuffer(buffer);
   }
 
-  nbuffer = ReadBuffer(index, blkno);
   page = BufferGetPage(nbuffer);
   bm_init_page(page, BITMAP_PAGE_INDEX);
 
@@ -140,7 +141,7 @@ bool bminsert(Relation index, Datum *values, bool *isnull, ItemPointer ht_ctid,
   BitmapMetaPageData *metadata;
   BlockNumber firstblk;
   Buffer metabuf;
-  int valindex;
+  int valindex = -1;
 
   if (bmstate == NULL) {
     oldCxt = MemoryContextSwitchTo(indexInfo->ii_Context);
@@ -171,8 +172,7 @@ bool bminsert(Relation index, Datum *values, bool *isnull, ItemPointer ht_ctid,
 
     itup = index_form_tuple(RelationGetDescr(index), values, isnull);
     metadata->valBlkEnd = bm_insert_val(index, metadata->valBlkEnd, itup);
-    metadata->ndistinct++;
-    valindex = bm_get_val_index(index, values, isnull);
+    valindex = metadata->ndistinct++;
   }
 
   if (valindex >= 0) {
