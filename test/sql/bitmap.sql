@@ -1,73 +1,94 @@
-CREATE TABLE tst (
+DROP TABLE IF EXISTS test_tbl;
+
+CREATE TABLE test_tbl (
 	i	int4,
 	t	text
 );
 
-INSERT INTO tst SELECT i%2, substr(md5(i::text), 1, 1) FROM generate_series(1,2000) i;
-CREATE INDEX bitmapidx ON tst USING bitmap (i);
+CREATE INDEX bmidx ON test_tbl USING bitmap (i);
 
-SET enable_seqscan=on;
-SET enable_bitmapscan=off;
-SET enable_indexscan=off;
+SELECT * FROM bm_metap('bmidx');
 
-SELECT count(*) FROM tst WHERE i = 0;
-SELECT count(*) FROM tst WHERE i = 1;
+INSERT INTO test_tbl VALUES (1, 'x'), (0, 'y'), (NULL, 'N');
+
+SELECT * FROM bm_metap('bmidx');
+SELECT * FROM bm_valuep('bmidx', 1);
+SELECT * FROM bm_indexp('bmidx', 2);
+SELECT * FROM bm_indexp('bmidx', 3);
+SELECT * FROM bm_indexp('bmidx', 4);
+
+SET enable_seqscan=off;
+EXPLAIN SELECT * FROM test_tbl WHERE i = 0;
+EXPLAIN SELECT * FROM test_tbl WHERE i IS NULL;
+
+SELECT * FROM test_tbl WHERE i = 0;
+SELECT * FROM test_tbl WHERE i IS NULL;
+
+-- INSERT INTO test_tbl SELECT i%2, substr(md5(i::text), 1, 1) FROM generate_series(1,2000) i;
+-- CREATE INDEX bitmapidx ON test_tbl USING bitmap (i);
+
+-- SET enable_seqscan=on;
+-- SET enable_bitmapscan=off;
+-- SET enable_indexscan=off;
+
+-- SELECT count(*) FROM test_tbl WHERE i = 0;
+-- SELECT count(*) FROM test_tbl WHERE i = 1;
 
 -- SET enable_seqscan=off;
 -- SET enable_bitmapscan=on;
 -- SET enable_indexscan=on;
 
--- EXPLAIN (COSTS OFF) SELECT count(*) FROM tst WHERE i = 7;
--- EXPLAIN (COSTS OFF) SELECT count(*) FROM tst WHERE t = '5';
--- EXPLAIN (COSTS OFF) SELECT count(*) FROM tst WHERE i = 7 AND t = '5';
+-- EXPLAIN (COSTS OFF) SELECT count(*) FROM test_tbl WHERE i = 7;
+-- EXPLAIN (COSTS OFF) SELECT count(*) FROM test_tbl WHERE t = '5';
+-- EXPLAIN (COSTS OFF) SELECT count(*) FROM test_tbl WHERE i = 7 AND t = '5';
 
--- SELECT count(*) FROM tst WHERE i = 7;
--- SELECT count(*) FROM tst WHERE t = '5';
--- SELECT count(*) FROM tst WHERE i = 7 AND t = '5';
+-- SELECT count(*) FROM test_tbl WHERE i = 7;
+-- SELECT count(*) FROM test_tbl WHERE t = '5';
+-- SELECT count(*) FROM test_tbl WHERE i = 7 AND t = '5';
 
--- DELETE FROM tst;
--- INSERT INTO tst SELECT i%10, substr(md5(i::text), 1, 1) FROM generate_series(1,2000) i;
--- VACUUM ANALYZE tst;
+-- DELETE FROM test_tbl;
+-- INSERT INTO test_tbl SELECT i%10, substr(md5(i::text), 1, 1) FROM generate_series(1,2000) i;
+-- VACUUM ANALYZE test_tbl;
 
--- SELECT count(*) FROM tst WHERE i = 7;
--- SELECT count(*) FROM tst WHERE t = '5';
--- SELECT count(*) FROM tst WHERE i = 7 AND t = '5';
+-- SELECT count(*) FROM test_tbl WHERE i = 7;
+-- SELECT count(*) FROM test_tbl WHERE t = '5';
+-- SELECT count(*) FROM test_tbl WHERE i = 7 AND t = '5';
 
--- DELETE FROM tst WHERE i > 1 OR t = '5';
--- VACUUM tst;
--- INSERT INTO tst SELECT i%10, substr(md5(i::text), 1, 1) FROM generate_series(1,2000) i;
+-- DELETE FROM test_tbl WHERE i > 1 OR t = '5';
+-- VACUUM test_tbl;
+-- INSERT INTO test_tbl SELECT i%10, substr(md5(i::text), 1, 1) FROM generate_series(1,2000) i;
 
--- SELECT count(*) FROM tst WHERE i = 7;
--- SELECT count(*) FROM tst WHERE t = '5';
--- SELECT count(*) FROM tst WHERE i = 7 AND t = '5';
+-- SELECT count(*) FROM test_tbl WHERE i = 7;
+-- SELECT count(*) FROM test_tbl WHERE t = '5';
+-- SELECT count(*) FROM test_tbl WHERE i = 7 AND t = '5';
 
--- VACUUM FULL tst;
+-- VACUUM FULL test_tbl;
 
--- SELECT count(*) FROM tst WHERE i = 7;
--- SELECT count(*) FROM tst WHERE t = '5';
--- SELECT count(*) FROM tst WHERE i = 7 AND t = '5';
+-- SELECT count(*) FROM test_tbl WHERE i = 7;
+-- SELECT count(*) FROM test_tbl WHERE t = '5';
+-- SELECT count(*) FROM test_tbl WHERE i = 7 AND t = '5';
 
 -- -- Try an unlogged table too
 
--- CREATE UNLOGGED TABLE tstu (
+-- CREATE UNLOGGED TABLE test_tblu (
 -- 	i	int4,
 -- 	t	text
 -- );
 
--- INSERT INTO tstu SELECT i%10, substr(md5(i::text), 1, 1) FROM generate_series(1,2000) i;
--- CREATE INDEX bitmapidxu ON tstu USING bitmap (i, t) WITH (col2 = 4);
+-- INSERT INTO test_tblu SELECT i%10, substr(md5(i::text), 1, 1) FROM generate_series(1,2000) i;
+-- CREATE INDEX bitmapidxu ON test_tblu USING bitmap (i, t) WITH (col2 = 4);
 
 -- SET enable_seqscan=off;
 -- SET enable_bitmapscan=on;
 -- SET enable_indexscan=on;
 
--- EXPLAIN (COSTS OFF) SELECT count(*) FROM tstu WHERE i = 7;
--- EXPLAIN (COSTS OFF) SELECT count(*) FROM tstu WHERE t = '5';
--- EXPLAIN (COSTS OFF) SELECT count(*) FROM tstu WHERE i = 7 AND t = '5';
+-- EXPLAIN (COSTS OFF) SELECT count(*) FROM test_tblu WHERE i = 7;
+-- EXPLAIN (COSTS OFF) SELECT count(*) FROM test_tblu WHERE t = '5';
+-- EXPLAIN (COSTS OFF) SELECT count(*) FROM test_tblu WHERE i = 7 AND t = '5';
 
--- SELECT count(*) FROM tstu WHERE i = 7;
--- SELECT count(*) FROM tstu WHERE t = '5';
--- SELECT count(*) FROM tstu WHERE i = 7 AND t = '5';
+-- SELECT count(*) FROM test_tblu WHERE i = 7;
+-- SELECT count(*) FROM test_tblu WHERE t = '5';
+-- SELECT count(*) FROM test_tblu WHERE i = 7 AND t = '5';
 
 -- RESET enable_seqscan;
 -- RESET enable_bitmapscan;
@@ -80,12 +101,3 @@ SELECT count(*) FROM tst WHERE i = 1;
 -- ORDER BY 1;
 
 -- --
--- -- relation options
--- --
--- DROP INDEX bitmapidx;
--- CREATE INDEX bitmapidx ON tst USING bitmap (i, t) WITH (length=7, col1=4);
--- SELECT reloptions FROM pg_class WHERE oid = 'bitmapidx'::regclass;
--- -- check for min and max values
--- \set VERBOSITY terse
--- CREATE INDEX bitmapidx2 ON tst USING bitmap (i, t) WITH (length=0);
--- CREATE INDEX bitmapidx2 ON tst USING bitmap (i, t) WITH (col1=0);
