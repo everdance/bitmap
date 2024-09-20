@@ -17,6 +17,8 @@
 PG_MODULE_MAGIC;
 #endif
 
+void _PG_init(void);
+
 static relopt_kind bm_relopt_kind;
 /*
  * Module initialize function: initialize info about bitmap relation options.
