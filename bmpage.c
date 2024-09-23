@@ -146,7 +146,7 @@ bm_newbuf_exlocked(Relation index)
 		{
 			Page		page = BufferGetPage(buffer);
 
-			if (PageIsNew(page))
+			if (PageIsNew(page) || BitmapPageDeleted(page))
 				return buffer;
 
 			LockBuffer(buffer, BUFFER_LOCK_UNLOCK);

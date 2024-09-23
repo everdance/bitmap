@@ -14,7 +14,7 @@
 #include <utils/syscache.h>
 
 /*
- * Validator fCatCListor a bitmap opclass.
+ * validate a bitmap opclass.
  */
 bool
 bmvalidate(Oid opclassoid)

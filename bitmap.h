@@ -34,16 +34,17 @@ typedef struct BitmapMetaPageData
 
 #define BitmapPageGetMeta(page) ((BitmapMetaPageData *) PageGetContents(page))
 
-
 #define BITMAP_PAGE_META 0x01
 #define BITMAP_PAGE_VALUE 0x02
 #define BITMAP_PAGE_INDEX 0x03
+
+#define BITMAP_PAGE_DELETED 0x01
 
 typedef struct BitmapPageSpecData {
   uint16 maxoff;
   BlockNumber nextBlk;
   uint16 pgtype;
-  uint16 unused;
+  uint16 flags;
 } BitmapPageSpecData;
 
 typedef BitmapPageSpecData *BitmapPageOpaque;
@@ -51,6 +52,8 @@ typedef BitmapPageSpecData *BitmapPageOpaque;
 #define BitmapPageGetOpaque(page)                                           \
   ((BitmapPageOpaque)PageGetSpecialPointer(page))
 
+#define BitmapPageSetDeleted(page) (BitmapPageGetOpaque(page)->flags |= BITMAP_PAGE_DELETED)
+#define BitmapPageDeleted(page) (BitmapPageGetOpaque(page)->flags & BITMAP_PAGE_DELETED)
 
 typedef struct BitmapOptions {} BitmapOptions;
 
@@ -68,6 +71,8 @@ typedef struct BitmapTuple {
 
 typedef struct BitmapState
 {
+  uint32 ndistinct;
+  BlockNumber *blocks; 
   MemoryContext tmpCxt;
 } BitmapState;
 
