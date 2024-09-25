@@ -181,7 +181,8 @@ bmvacuumcleanup(IndexVacuumInfo *info, IndexBulkDeleteResult *stats)
 					BitmapPageGetOpaque(BufferGetPage(prevbuf))->nextBlk = opaque->nextBlk;
 					UnlockReleaseBuffer(prevbuf);
 				}
-				else // first page is removed, need to update
+				else
+					//first page is removed, need to update
 				{
 					blocks[i] = opaque->nextBlk;
 				}
@@ -193,7 +194,7 @@ bmvacuumcleanup(IndexVacuumInfo *info, IndexBulkDeleteResult *stats)
 		}
 	}
 
-	// copy possible first page changes to meta page
+	/* copy possible first page changes to meta page */
 	UnlockReleaseBuffer(mbuffer);
 	LockBuffer(mbuffer, BUFFER_LOCK_EXCLUSIVE);
 	memcpy(meta->firstBlk, blocks, sizeof(BlockNumber) * nvalues);
