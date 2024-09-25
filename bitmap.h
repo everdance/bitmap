@@ -99,13 +99,6 @@ typedef struct BitmapScanOpaqueData
 
 typedef BitmapScanOpaqueData *BitmapScanOpaque;
 
-typedef struct xl_bm_insert
-{
-	BlockNumber heapBlk;
-	OffsetNumber offnum;
-} xl_bm_insert;
-
-
 extern bytea *bmoptions(Datum reloptions, bool validate);
 extern bool bminsert(Relation index, Datum *values, bool *isnull, ItemPointer ht_ctid,
              Relation heapRel, IndexUniqueCheck checkUnique,

@@ -20,7 +20,6 @@ OBJS = \
 	bmtuple.o \
 	bmvacuum.o \
 	bmvalidate.o \
-	bmxlog.o \
 	bminspect.o
 
 PG_CONFIG = pg_config
