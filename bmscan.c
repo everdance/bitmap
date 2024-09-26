@@ -57,7 +57,8 @@ bmendscan(IndexScanDesc scan)
 {
 	BitmapScanOpaque so = (BitmapScanOpaque) scan->opaque;
 
-	pfree(so->curPage);
+	if (so->curPage)
+		pfree(so->curPage);
 }
 
 bool
