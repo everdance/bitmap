@@ -1,7 +1,7 @@
 .vscode/
 tmpdb/
 test/log/*.*
-test/result/*.*
+test/results/*.*
 test/regression.*
 *.o
 *.so

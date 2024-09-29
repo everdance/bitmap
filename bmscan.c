@@ -167,6 +167,8 @@ bmgetbitmap(IndexScanDesc scan, TIDBitmap *tbm)
 	{
 		ScanKey		skey = scan->keyData;
 
+		memset(isnull, 0, sizeof(bool) * INDEX_MAX_KEYS);
+
 		for (i = 0; i < scan->numberOfKeys; i++)
 		{
 			if (skey->sk_flags & SK_ISNULL)
