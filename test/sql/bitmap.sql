@@ -24,49 +24,53 @@ EXPLAIN SELECT * FROM test_tbl WHERE i IS NULL;
 SELECT * FROM test_tbl WHERE i = 0;
 SELECT * FROM test_tbl WHERE i IS NULL;
 
--- INSERT INTO test_tbl SELECT i%2, substr(md5(i::text), 1, 1) FROM generate_series(1,2000) i;
--- CREATE INDEX bitmapidx ON test_tbl USING bitmap (i);
+DELETE FROM test_tbl;
 
--- SET enable_seqscan=on;
--- SET enable_bitmapscan=off;
--- SET enable_indexscan=off;
+INSERT INTO test_tbl SELECT i%2, substr(md5(i::text), 1, 1) FROM generate_series(1,2000) i;
 
--- SELECT count(*) FROM test_tbl WHERE i = 0;
--- SELECT count(*) FROM test_tbl WHERE i = 1;
+SET enable_seqscan=on;
+SET enable_bitmapscan=off;
+SET enable_indexscan=off;
 
--- SET enable_seqscan=off;
--- SET enable_bitmapscan=on;
--- SET enable_indexscan=on;
+SELECT count(*) FROM test_tbl WHERE i = 0;
+SELECT count(*) FROM test_tbl WHERE i = 1;
+SELECT count(*) FROM test_tbl WHERE i = 7;
+SELECT count(*) FROM test_tbl WHERE t = '5';
+SELECT count(*) FROM test_tbl WHERE i = 7 AND t = '5';
 
--- EXPLAIN (COSTS OFF) SELECT count(*) FROM test_tbl WHERE i = 7;
--- EXPLAIN (COSTS OFF) SELECT count(*) FROM test_tbl WHERE t = '5';
--- EXPLAIN (COSTS OFF) SELECT count(*) FROM test_tbl WHERE i = 7 AND t = '5';
+SET enable_seqscan=off;
+SET enable_bitmapscan=on;
+SET enable_indexscan=on;
 
--- SELECT count(*) FROM test_tbl WHERE i = 7;
--- SELECT count(*) FROM test_tbl WHERE t = '5';
--- SELECT count(*) FROM test_tbl WHERE i = 7 AND t = '5';
+EXPLAIN (COSTS OFF) SELECT count(*) FROM test_tbl WHERE i = 7;
+EXPLAIN (COSTS OFF) SELECT count(*) FROM test_tbl WHERE t = '5';
+EXPLAIN (COSTS OFF) SELECT count(*) FROM test_tbl WHERE i = 7 AND t = '5';
 
--- DELETE FROM test_tbl;
--- INSERT INTO test_tbl SELECT i%10, substr(md5(i::text), 1, 1) FROM generate_series(1,2000) i;
--- VACUUM ANALYZE test_tbl;
+SELECT count(*) FROM test_tbl WHERE i = 7;
+SELECT count(*) FROM test_tbl WHERE t = '5';
+SELECT count(*) FROM test_tbl WHERE i = 7 AND t = '5';
 
--- SELECT count(*) FROM test_tbl WHERE i = 7;
--- SELECT count(*) FROM test_tbl WHERE t = '5';
--- SELECT count(*) FROM test_tbl WHERE i = 7 AND t = '5';
+DELETE FROM test_tbl;
+INSERT INTO test_tbl SELECT i%10, substr(md5(i::text), 1, 1) FROM generate_series(1,2000) i;
+VACUUM ANALYZE test_tbl;
 
--- DELETE FROM test_tbl WHERE i > 1 OR t = '5';
--- VACUUM test_tbl;
--- INSERT INTO test_tbl SELECT i%10, substr(md5(i::text), 1, 1) FROM generate_series(1,2000) i;
+SELECT count(*) FROM test_tbl WHERE i = 7;
+SELECT count(*) FROM test_tbl WHERE t = '5';
+SELECT count(*) FROM test_tbl WHERE i = 7 AND t = '5';
 
--- SELECT count(*) FROM test_tbl WHERE i = 7;
--- SELECT count(*) FROM test_tbl WHERE t = '5';
--- SELECT count(*) FROM test_tbl WHERE i = 7 AND t = '5';
+DELETE FROM test_tbl WHERE i > 1 OR t = '5';
+VACUUM test_tbl;
+INSERT INTO test_tbl SELECT i%10, substr(md5(i::text), 1, 1) FROM generate_series(1,2000) i;
 
--- VACUUM FULL test_tbl;
+SELECT count(*) FROM test_tbl WHERE i = 7;
+SELECT count(*) FROM test_tbl WHERE t = '5';
+SELECT count(*) FROM test_tbl WHERE i = 7 AND t = '5';
 
--- SELECT count(*) FROM test_tbl WHERE i = 7;
--- SELECT count(*) FROM test_tbl WHERE t = '5';
--- SELECT count(*) FROM test_tbl WHERE i = 7 AND t = '5';
+VACUUM FULL test_tbl;
+
+SELECT count(*) FROM test_tbl WHERE i = 7;
+SELECT count(*) FROM test_tbl WHERE t = '5';
+SELECT count(*) FROM test_tbl WHERE i = 7 AND t = '5';
 
 -- -- Try an unlogged table too
 

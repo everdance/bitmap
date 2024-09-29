@@ -80,6 +80,8 @@ bmgettuple(IndexScanDesc scan, ScanDirection dir)
 	if (so->keyIndex < 0)
 	{
 		ScanKey		skey = scan->keyData;
+        
+		memset(isnull, 0, sizeof(bool) * INDEX_MAX_KEYS);
 
 		for (i = 0; i < scan->numberOfKeys; i++)
 		{
@@ -162,6 +164,8 @@ bmgetbitmap(IndexScanDesc scan, TIDBitmap *tbm)
 				maxoffset;
 	BitmapTuple *itup;
 	ItemPointer tids = palloc0(sizeof(ItemPointerData) * MAX_HEAP_TUPLE_PER_PAGE);
+
+	scan->xs_recheck = false;
 
 	if (so->keyIndex < 0)
 	{

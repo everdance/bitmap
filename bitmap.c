@@ -95,9 +95,6 @@ bm_insert_tuple(Relation index, BlockNumber blkno, ItemPointer ctid)
 	if (!bm_page_add_tup(page, tup))
 		elog(ERROR, "insert bitmap tuple failed on new page");
 
-	opaque = BitmapPageGetOpaque(page);
-	opaque->nextBlk = InvalidBlockNumber;
-
 	UnlockReleaseBuffer(nbuffer);
 
 	return firstBlk == InvalidBlockNumber ? blkno : firstBlk;
@@ -165,6 +162,7 @@ bminsert(Relation index, Datum *values, bool *isnull, ItemPointer ht_ctid,
 	BlockNumber firstblk;
 	Buffer		metabuf;
 	int			valindex = -1;
+	bool 		valExists = true;
 
 	if (bmstate == NULL)
 	{
@@ -199,12 +197,19 @@ bminsert(Relation index, Datum *values, bool *isnull, ItemPointer ht_ctid,
 		itup = index_form_tuple(RelationGetDescr(index), values, isnull);
 		metadata->valBlkEnd = bm_insert_val(index, metadata->valBlkEnd, itup);
 		valindex = metadata->ndistinct++;
+		valExists = false;
 	}
 
 	if (valindex >= 0)
 	{
 		firstblk = metadata->firstBlk[valindex];
 		metadata->firstBlk[valindex] = bm_insert_tuple(index, firstblk, ht_ctid);
+		// index value exists but previously no index tuples due to deletion
+		// we need to increase distinct value as well
+		if (firstblk == InvalidBlockNumber && valExists)
+		{
+			metadata->ndistinct++;
+		}
 	}
 
 	UnlockReleaseBuffer(metabuf);

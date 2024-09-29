@@ -19,7 +19,7 @@ bmbulkdelete(IndexVacuumInfo *info,
 	BitmapState state;
 	BitmapMetaPageData *meta;
 	Page		page;
-	GenericXLogState *gxlogState;
+	// GenericXLogState *gxlogState;
 	BitmapPageOpaque opaque;
 	ItemPointer tids = palloc0(sizeof(ItemPointerData) * MAX_HEAP_TUPLE_PER_PAGE);
 
@@ -29,7 +29,6 @@ bmbulkdelete(IndexVacuumInfo *info,
 	buffer = ReadBuffer(index, BITMAP_METAPAGE_BLKNO);
 	LockBuffer(buffer, BUFFER_LOCK_SHARE);
 	meta = BitmapPageGetMeta(BufferGetPage(buffer));
-	blkno = meta->valBlkEnd;
 
 	state.ndistinct = meta->ndistinct;
 	if (state.ndistinct == 0)
@@ -51,13 +50,15 @@ bmbulkdelete(IndexVacuumInfo *info,
 					   *itupPtr,
 					   *itupEnd;
 			OffsetNumber maxoff;
+			// bool hasDelete = false;
 
 			vacuum_delay_point();
 
 			buffer = ReadBuffer(index, blkno);
 			LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
-			gxlogState = GenericXLogStart(index);
-			page = GenericXLogRegisterBuffer(gxlogState, buffer, 0);
+			// gxlogState = GenericXLogStart(index);
+			// page = GenericXLogRegisterBuffer(gxlogState, buffer, 0);
+			page = BufferGetPage(buffer);
 			opaque = BitmapPageGetOpaque(page);
 			maxoff = opaque->maxoff;
 
@@ -67,7 +68,7 @@ bmbulkdelete(IndexVacuumInfo *info,
 			while (itup < itupEnd)
 			{
 				int			count = 0;
-				int			delCount = 0;
+				int			delsTuple = 0;
 
 				count = bm_tuple_to_tids(itup, tids);
 				for (int n = 0; n < count; n++)
@@ -77,13 +78,14 @@ bmbulkdelete(IndexVacuumInfo *info,
 						int			idx = tids[n].ip_posid - 1;
 
 						itup->bm[idx / 32] &= ~(0x1 << (idx % 32));
-						delCount++;
+						delsTuple++;
+						// hasDelete = true;
 						stats->tuples_removed += 1;
 					}
 				}
 
 				/* all tuples deleted in a single index tuple, del index tuple */
-				if (delCount == count)
+				if (delsTuple == count)
 				{
 					opaque->maxoff--;
 				}
@@ -96,8 +98,6 @@ bmbulkdelete(IndexVacuumInfo *info,
 				itup++;
 			}
 
-			Assert(itupPtr == BitmapPageGetTuple(page, opaque->maxoff));
-
 			if (itupPtr != itup)
 			{
 				if (opaque->maxoff == 0)
@@ -105,12 +105,14 @@ bmbulkdelete(IndexVacuumInfo *info,
 					BitmapPageSetDeleted(page);
 				}
 				((PageHeader) page)->pd_lower = (Pointer) itupPtr - page;
-				GenericXLogFinish(gxlogState);
 			}
-			else
-			{
-				GenericXLogAbort(gxlogState);
-			}
+			// if (hasDelete)
+			// {
+			// 	GenericXLogFinish(gxlogState);
+			// } else
+			// {
+			// 	GenericXLogAbort(gxlogState);
+			// }
 
 			blkno = opaque->nextBlk;
 			UnlockReleaseBuffer(buffer);
@@ -145,7 +147,6 @@ bmvacuumcleanup(IndexVacuumInfo *info, IndexBulkDeleteResult *stats)
 	mbuffer = ReadBuffer(index, BITMAP_METAPAGE_BLKNO);
 	LockBuffer(mbuffer, BUFFER_LOCK_SHARE);
 	meta = BitmapPageGetMeta(BufferGetPage(mbuffer));
-	blkno = meta->valBlkEnd;
 
 	nvalues = meta->ndistinct;
 	if (nvalues == 0)
@@ -157,7 +158,7 @@ bmvacuumcleanup(IndexVacuumInfo *info, IndexBulkDeleteResult *stats)
 	blocks = palloc(sizeof(BlockNumber) * nvalues);
 	memcpy(blocks, meta->firstBlk, sizeof(BlockNumber) * nvalues);
 
-	for (int i = 0; i < nvalues; i++)
+	for (int i = 0; i < meta->ndistinct; i++)
 	{
 		blkno = blocks[i];
 		preblk = InvalidBlockNumber;
@@ -172,7 +173,6 @@ bmvacuumcleanup(IndexVacuumInfo *info, IndexBulkDeleteResult *stats)
 
 			if (BitmapPageDeleted(page))
 			{
-				RecordFreeIndexPage(index, blkno);
 				stats->pages_free++;
 				if (preblk != InvalidBlockNumber)
 				{
@@ -181,11 +181,14 @@ bmvacuumcleanup(IndexVacuumInfo *info, IndexBulkDeleteResult *stats)
 					BitmapPageGetOpaque(BufferGetPage(prevbuf))->nextBlk = opaque->nextBlk;
 					UnlockReleaseBuffer(prevbuf);
 				}
-				else
-					//first page is removed, need to update
+				else //first page is removed, need to update
 				{
 					blocks[i] = opaque->nextBlk;
+					if (blocks[i] == InvalidBlockNumber) {
+						nvalues--;
+					}
 				}
+				RecordFreeIndexPage(index, blkno);
 			}
 
 			preblk = blkno;
@@ -194,10 +197,11 @@ bmvacuumcleanup(IndexVacuumInfo *info, IndexBulkDeleteResult *stats)
 		}
 	}
 
-	/* copy possible first page changes to meta page */
-	UnlockReleaseBuffer(mbuffer);
+	/* copy meta page changes to meta page */
+	LockBuffer(mbuffer, BUFFER_LOCK_UNLOCK);
 	LockBuffer(mbuffer, BUFFER_LOCK_EXCLUSIVE);
-	memcpy(meta->firstBlk, blocks, sizeof(BlockNumber) * nvalues);
+	memcpy(meta->firstBlk, blocks, sizeof(BlockNumber) * meta->ndistinct);
+	meta->ndistinct = nvalues;
 	UnlockReleaseBuffer(mbuffer);
 
 	IndexFreeSpaceMapVacuum(info->index);

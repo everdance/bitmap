@@ -75,34 +75,133 @@ SELECT * FROM test_tbl WHERE i IS NULL;
    | N
 (1 row)
 
--- INSERT INTO test_tbl SELECT i%2, substr(md5(i::text), 1, 1) FROM generate_series(1,2000) i;
--- CREATE INDEX bitmapidx ON test_tbl USING bitmap (i);
--- SET enable_seqscan=on;
--- SET enable_bitmapscan=off;
--- SET enable_indexscan=off;
--- SELECT count(*) FROM test_tbl WHERE i = 0;
--- SELECT count(*) FROM test_tbl WHERE i = 1;
--- SET enable_seqscan=off;
--- SET enable_bitmapscan=on;
--- SET enable_indexscan=on;
--- EXPLAIN (COSTS OFF) SELECT count(*) FROM test_tbl WHERE i = 7;
--- EXPLAIN (COSTS OFF) SELECT count(*) FROM test_tbl WHERE t = '5';
--- EXPLAIN (COSTS OFF) SELECT count(*) FROM test_tbl WHERE i = 7 AND t = '5';
--- SELECT count(*) FROM test_tbl WHERE i = 7;
--- SELECT count(*) FROM test_tbl WHERE t = '5';
--- SELECT count(*) FROM test_tbl WHERE i = 7 AND t = '5';
--- DELETE FROM test_tbl;
--- INSERT INTO test_tbl SELECT i%10, substr(md5(i::text), 1, 1) FROM generate_series(1,2000) i;
--- VACUUM ANALYZE test_tbl;
--- SELECT count(*) FROM test_tbl WHERE i = 7;
--- SELECT count(*) FROM test_tbl WHERE t = '5';
--- SELECT count(*) FROM test_tbl WHERE i = 7 AND t = '5';
--- DELETE FROM test_tbl WHERE i > 1 OR t = '5';
--- VACUUM test_tbl;
--- INSERT INTO test_tbl SELECT i%10, substr(md5(i::text), 1, 1) FROM generate_series(1,2000) i;
--- SELECT count(*) FROM test_tbl WHERE i = 7;
--- SELECT count(*) FROM test_tbl WHERE t = '5';
--- SELECT count(*) FROM test_tbl WHERE i = 7 AND t = '5';
+DELETE FROM test_tbl;
+INSERT INTO test_tbl SELECT i%2, substr(md5(i::text), 1, 1) FROM generate_series(1,2000) i;
+SET enable_seqscan=on;
+SET enable_bitmapscan=off;
+SET enable_indexscan=off;
+SELECT count(*) FROM test_tbl WHERE i = 0;
+ count 
+-------
+  1000
+(1 row)
+
+SELECT count(*) FROM test_tbl WHERE i = 1;
+ count 
+-------
+  1000
+(1 row)
+
+SELECT count(*) FROM test_tbl WHERE i = 7;
+ count 
+-------
+     0
+(1 row)
+
+SELECT count(*) FROM test_tbl WHERE t = '5';
+ count 
+-------
+   112
+(1 row)
+
+SELECT count(*) FROM test_tbl WHERE i = 7 AND t = '5';
+ count 
+-------
+     0
+(1 row)
+
+SET enable_seqscan=off;
+SET enable_bitmapscan=on;
+SET enable_indexscan=on;
+EXPLAIN (COSTS OFF) SELECT count(*) FROM test_tbl WHERE i = 7;
+               QUERY PLAN               
+----------------------------------------
+ Aggregate
+   ->  Bitmap Heap Scan on test_tbl
+         Recheck Cond: (i = 7)
+         ->  Bitmap Index Scan on bmidx
+               Index Cond: (i = 7)
+(5 rows)
+
+EXPLAIN (COSTS OFF) SELECT count(*) FROM test_tbl WHERE t = '5';
+           QUERY PLAN            
+---------------------------------
+ Aggregate
+   ->  Seq Scan on test_tbl
+         Filter: (t = '5'::text)
+(3 rows)
+
+EXPLAIN (COSTS OFF) SELECT count(*) FROM test_tbl WHERE i = 7 AND t = '5';
+               QUERY PLAN               
+----------------------------------------
+ Aggregate
+   ->  Bitmap Heap Scan on test_tbl
+         Recheck Cond: (i = 7)
+         Filter: (t = '5'::text)
+         ->  Bitmap Index Scan on bmidx
+               Index Cond: (i = 7)
+(6 rows)
+
+SELECT count(*) FROM test_tbl WHERE i = 7;
+ count 
+-------
+     0
+(1 row)
+
+SELECT count(*) FROM test_tbl WHERE t = '5';
+ count 
+-------
+   112
+(1 row)
+
+SELECT count(*) FROM test_tbl WHERE i = 7 AND t = '5';
+ count 
+-------
+     0
+(1 row)
+
+DELETE FROM test_tbl;
+INSERT INTO test_tbl SELECT i%10, substr(md5(i::text), 1, 1) FROM generate_series(1,2000) i;
+VACUUM ANALYZE test_tbl;
+SELECT count(*) FROM test_tbl WHERE i = 7;
+ count 
+-------
+   194
+(1 row)
+
+SELECT count(*) FROM test_tbl WHERE t = '5';
+ count 
+-------
+   112
+(1 row)
+
+SELECT count(*) FROM test_tbl WHERE i = 7 AND t = '5';
+ count 
+-------
+    12
+(1 row)
+
+DELETE FROM test_tbl WHERE i > 1 OR t = '5';
+VACUUM test_tbl;
+INSERT INTO test_tbl SELECT i%10, substr(md5(i::text), 1, 1) FROM generate_series(1,2000) i;
+SELECT count(*) FROM test_tbl WHERE i = 7;
+ count 
+-------
+   195
+(1 row)
+
+SELECT count(*) FROM test_tbl WHERE t = '5';
+ count 
+-------
+   112
+(1 row)
+
+SELECT count(*) FROM test_tbl WHERE i = 7 AND t = '5';
+ count 
+-------
+    13
+(1 row)
+
 -- VACUUM FULL test_tbl;
 -- SELECT count(*) FROM test_tbl WHERE i = 7;
 -- SELECT count(*) FROM test_tbl WHERE t = '5';
