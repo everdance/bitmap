@@ -222,27 +222,79 @@ SELECT count(*) FROM test_tbl WHERE i = 7 AND t = '5';
 (1 row)
 
 -- -- Try an unlogged table too
--- CREATE UNLOGGED TABLE test_tblu (
--- 	i	int4,
--- 	t	text
--- );
--- INSERT INTO test_tblu SELECT i%10, substr(md5(i::text), 1, 1) FROM generate_series(1,2000) i;
--- CREATE INDEX bitmapidxu ON test_tblu USING bitmap (i, t) WITH (col2 = 4);
--- SET enable_seqscan=off;
--- SET enable_bitmapscan=on;
--- SET enable_indexscan=on;
--- EXPLAIN (COSTS OFF) SELECT count(*) FROM test_tblu WHERE i = 7;
--- EXPLAIN (COSTS OFF) SELECT count(*) FROM test_tblu WHERE t = '5';
--- EXPLAIN (COSTS OFF) SELECT count(*) FROM test_tblu WHERE i = 7 AND t = '5';
--- SELECT count(*) FROM test_tblu WHERE i = 7;
--- SELECT count(*) FROM test_tblu WHERE t = '5';
--- SELECT count(*) FROM test_tblu WHERE i = 7 AND t = '5';
--- RESET enable_seqscan;
--- RESET enable_bitmapscan;
--- RESET enable_indexscan;
--- -- Run amvalidator function on our opclasses
--- SELECT opcname, amvalidate(opc.oid)
--- FROM pg_opclass opc JOIN pg_am am ON am.oid = opcmethod
--- WHERE amname = 'bitmap'
--- ORDER BY 1;
--- --
+CREATE UNLOGGED TABLE test_tblu (
+	i	int4,
+	t	text
+);
+INSERT INTO test_tblu SELECT i%10, substr(md5(i::text), 1, 1) FROM generate_series(1,2000) i;
+CREATE INDEX bitmapidxu ON test_tblu USING bitmap (i, t) WITH (col2 = 4);
+ERROR:  unrecognized parameter "col2"
+SET enable_seqscan=off;
+SET enable_bitmapscan=on;
+SET enable_indexscan=on;
+EXPLAIN (COSTS OFF) SELECT count(*) FROM test_tblu WHERE i = 7;
+         QUERY PLAN          
+-----------------------------
+ Aggregate
+   ->  Seq Scan on test_tblu
+         Filter: (i = 7)
+(3 rows)
+
+EXPLAIN (COSTS OFF) SELECT count(*) FROM test_tblu WHERE t = '5';
+           QUERY PLAN            
+---------------------------------
+ Aggregate
+   ->  Seq Scan on test_tblu
+         Filter: (t = '5'::text)
+(3 rows)
+
+EXPLAIN (COSTS OFF) SELECT count(*) FROM test_tblu WHERE i = 7 AND t = '5';
+                  QUERY PLAN                   
+-----------------------------------------------
+ Aggregate
+   ->  Seq Scan on test_tblu
+         Filter: ((i = 7) AND (t = '5'::text))
+(3 rows)
+
+SELECT count(*) FROM test_tblu WHERE i = 7;
+ count 
+-------
+   200
+(1 row)
+
+SELECT count(*) FROM test_tblu WHERE t = '5';
+ count 
+-------
+   112
+(1 row)
+
+SELECT count(*) FROM test_tblu WHERE i = 7 AND t = '5';
+ count 
+-------
+    13
+(1 row)
+
+RESET enable_seqscan;
+RESET enable_bitmapscan;
+RESET enable_indexscan;
+-- Run amvalidator function on our opclasses
+SELECT opcname, amvalidate(opc.oid)
+FROM pg_opclass opc JOIN pg_am am ON am.oid = opcmethod
+WHERE amname = 'bitmap'
+ORDER BY 1;
+     opcname     | amvalidate 
+-----------------+------------
+ char_ops        | t
+ cidr_ops        | t
+ float4_ops      | t
+ float8_ops      | t
+ inet_ops        | t
+ int2_ops        | t
+ int4_ops        | t
+ int8_ops        | t
+ text_ops        | t
+ timestamp_ops   | t
+ timestamptz_ops | t
+ varchar_ops     | t
+(12 rows)
+

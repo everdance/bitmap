@@ -93,8 +93,8 @@ bmvalidate(Oid opclassoid)
 		switch (procform->amprocnum)
 		{
 			case BITMAP_EQUAL_PROC:
-				ok = check_amproc_signature(procform->amproc, INT4OID, true,
-											2, 2, opckeytype);
+				ok = check_amproc_signature(procform->amproc, INT4OID, false,
+											2, 2, opckeytype, opckeytype);
 				break;
 			default:
 				ereport(INFO,
@@ -174,39 +174,25 @@ bmvalidate(Oid opclassoid)
 		if (thisgroup->lefttype == opcintype &&
 			thisgroup->righttype == opcintype)
 			opclassgroup = thisgroup;
-
-		if (thisgroup->operatorset != (1 << BITMAP_NSTRATEGIES))
-		{
-			ereport(INFO,
-					(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
-					 errmsg("operator family \"%s\" of access method %s is missing operator(s) for types %s and %s",
-							opfamilyname, "btree",
-							format_type_be(thisgroup->lefttype),
-							format_type_be(thisgroup->righttype))));
-			result = false;
-		}
-
-		if ((thisgroup->functionset & (1 << BITMAP_EQUAL_PROC)) == 0)
-		{
-			ereport(INFO,
-					(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
-					 errmsg("operator family \"%s\" of access method %s is missing support function for types %s and %s",
-							opfamilyname, "btree",
-							format_type_be(thisgroup->lefttype),
-							format_type_be(thisgroup->righttype))));
-			result = false;
-		}
 	}
 
 	if (!opclassgroup)
 	{
 		ereport(INFO,
 				(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
-				 errmsg("operator class \"%s\" of access method %s is missing operator(s)",
-						opclassname, "bitmap")));
+				 errmsg("operator class \"%s\" is missing operator(s)",
+						opclassname)));
 		result = false;
 	}
 
+	if ((opclassgroup->functionset & (1 << BITMAP_EQUAL_PROC)) == 0)
+	{
+		ereport(INFO,
+			(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+				errmsg("operator class \"%s\" is missing support function",
+					opclassname)));
+		result = false;
+	}
 
 	ReleaseCatCacheList(proclist);
 	ReleaseCatCacheList(oprlist);

@@ -74,34 +74,32 @@ SELECT count(*) FROM test_tbl WHERE i = 7 AND t = '5';
 
 -- -- Try an unlogged table too
 
--- CREATE UNLOGGED TABLE test_tblu (
--- 	i	int4,
--- 	t	text
--- );
+CREATE UNLOGGED TABLE test_tblu (
+	i	int4,
+	t	text
+);
 
--- INSERT INTO test_tblu SELECT i%10, substr(md5(i::text), 1, 1) FROM generate_series(1,2000) i;
--- CREATE INDEX bitmapidxu ON test_tblu USING bitmap (i, t) WITH (col2 = 4);
+INSERT INTO test_tblu SELECT i%10, substr(md5(i::text), 1, 1) FROM generate_series(1,2000) i;
+CREATE INDEX bitmapidxu ON test_tblu USING bitmap (i, t) WITH (col2 = 4);
 
--- SET enable_seqscan=off;
--- SET enable_bitmapscan=on;
--- SET enable_indexscan=on;
+SET enable_seqscan=off;
+SET enable_bitmapscan=on;
+SET enable_indexscan=on;
 
--- EXPLAIN (COSTS OFF) SELECT count(*) FROM test_tblu WHERE i = 7;
--- EXPLAIN (COSTS OFF) SELECT count(*) FROM test_tblu WHERE t = '5';
--- EXPLAIN (COSTS OFF) SELECT count(*) FROM test_tblu WHERE i = 7 AND t = '5';
+EXPLAIN (COSTS OFF) SELECT count(*) FROM test_tblu WHERE i = 7;
+EXPLAIN (COSTS OFF) SELECT count(*) FROM test_tblu WHERE t = '5';
+EXPLAIN (COSTS OFF) SELECT count(*) FROM test_tblu WHERE i = 7 AND t = '5';
 
--- SELECT count(*) FROM test_tblu WHERE i = 7;
--- SELECT count(*) FROM test_tblu WHERE t = '5';
--- SELECT count(*) FROM test_tblu WHERE i = 7 AND t = '5';
+SELECT count(*) FROM test_tblu WHERE i = 7;
+SELECT count(*) FROM test_tblu WHERE t = '5';
+SELECT count(*) FROM test_tblu WHERE i = 7 AND t = '5';
 
--- RESET enable_seqscan;
--- RESET enable_bitmapscan;
--- RESET enable_indexscan;
+RESET enable_seqscan;
+RESET enable_bitmapscan;
+RESET enable_indexscan;
 
--- -- Run amvalidator function on our opclasses
--- SELECT opcname, amvalidate(opc.oid)
--- FROM pg_opclass opc JOIN pg_am am ON am.oid = opcmethod
--- WHERE amname = 'bitmap'
--- ORDER BY 1;
-
--- --
+-- Run amvalidator function on our opclasses
+SELECT opcname, amvalidate(opc.oid)
+FROM pg_opclass opc JOIN pg_am am ON am.oid = opcmethod
+WHERE amname = 'bitmap'
+ORDER BY 1;
