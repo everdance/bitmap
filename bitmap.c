@@ -182,7 +182,11 @@ bminsert(Relation index, Datum *values, bool *isnull, ItemPointer ht_ctid,
 	LockBuffer(metabuf, BUFFER_LOCK_SHARE);
 	metadata = BitmapPageGetMeta(BufferGetPage(metabuf));
 
-	valindex = bm_get_val_index(index, values, isnull);
+	if (metadata->ndistinct > 0)
+	{
+		valindex = bm_get_val_index(index, values, isnull);
+	}
+	
 	if (valindex < 0)
 	{
 		if (metadata->ndistinct == MAX_DISTINCT)

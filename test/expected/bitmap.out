@@ -202,10 +202,25 @@ SELECT count(*) FROM test_tbl WHERE i = 7 AND t = '5';
     13
 (1 row)
 
--- VACUUM FULL test_tbl;
--- SELECT count(*) FROM test_tbl WHERE i = 7;
--- SELECT count(*) FROM test_tbl WHERE t = '5';
--- SELECT count(*) FROM test_tbl WHERE i = 7 AND t = '5';
+VACUUM FULL test_tbl;
+SELECT count(*) FROM test_tbl WHERE i = 7;
+ count 
+-------
+   195
+(1 row)
+
+SELECT count(*) FROM test_tbl WHERE t = '5';
+ count 
+-------
+   112
+(1 row)
+
+SELECT count(*) FROM test_tbl WHERE i = 7 AND t = '5';
+ count 
+-------
+    13
+(1 row)
+
 -- -- Try an unlogged table too
 -- CREATE UNLOGGED TABLE test_tblu (
 -- 	i	int4,

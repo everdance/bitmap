@@ -134,6 +134,7 @@ extern void bm_init_page(Page page, uint16 pgtype);
 extern void bm_init_metapage(Relation index, ForkNumber fork);
 extern void bm_flush_cached(Relation index, BitmapBuildState *state);
 extern BlockNumber bm_get_firstblk(Relation index, int valIdx);
+extern BitmapMetaPageData* bm_get_meta(Relation index);
 
 
 extern BitmapTuple *bitmap_form_tuple(ItemPointer ctid);

@@ -69,6 +69,7 @@ bmgettuple(IndexScanDesc scan, ScanDirection dir)
 	Datum		values[INDEX_MAX_KEYS];
 	bool		isnull[INDEX_MAX_KEYS];
 	Buffer		buffer;
+	BitmapMetaPageData *meta;
 	BitmapPageOpaque opaque;
 	int32		htupidx;
 	BitmapTuple *itup;
@@ -95,7 +96,12 @@ bmgettuple(IndexScanDesc scan, ScanDirection dir)
 			skey++;
 		}
 
-		so->keyIndex = bm_get_val_index(index, values, isnull);
+		meta = bm_get_meta(index);
+		if (meta->valBlkEnd != InvalidBlockNumber) 
+		{
+			so->keyIndex = bm_get_val_index(index, values, isnull);
+		}
+
 		if (so->keyIndex < 0)
 			return false;
 
@@ -153,6 +159,7 @@ bmgetbitmap(IndexScanDesc scan, TIDBitmap *tbm)
 {
 	int64		ntids = 0;
 	BitmapScanOpaque so = (BitmapScanOpaque) scan->opaque;
+	BitmapMetaPageData *meta;
 	Relation	index = scan->indexRelation;
 	int			i;
 	Datum		values[INDEX_MAX_KEYS];
@@ -184,7 +191,12 @@ bmgetbitmap(IndexScanDesc scan, TIDBitmap *tbm)
 			skey++;
 		}
 
-		so->keyIndex = bm_get_val_index(index, values, isnull);
+		meta = bm_get_meta(index);
+		if (meta->valBlkEnd != InvalidBlockNumber) 
+		{
+			so->keyIndex = bm_get_val_index(index, values, isnull);
+		}
+
 		/* keys are not indexed */
 		if (so->keyIndex < 0)
 			return 0;
