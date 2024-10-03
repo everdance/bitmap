@@ -188,9 +188,9 @@ bmvalidate(Oid opclassoid)
 	if ((opclassgroup->functionset & (1 << BITMAP_EQUAL_PROC)) == 0)
 	{
 		ereport(INFO,
-			(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
-				errmsg("operator class \"%s\" is missing support function",
-					opclassname)));
+				(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+				 errmsg("operator class \"%s\" is missing support function",
+						opclassname)));
 		result = false;
 	}
 

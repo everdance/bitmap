@@ -81,7 +81,7 @@ bmgettuple(IndexScanDesc scan, ScanDirection dir)
 	if (so->keyIndex < 0)
 	{
 		ScanKey		skey = scan->keyData;
-        
+
 		memset(isnull, 0, sizeof(bool) * INDEX_MAX_KEYS);
 
 		for (i = 0; i < scan->numberOfKeys; i++)
@@ -97,7 +97,7 @@ bmgettuple(IndexScanDesc scan, ScanDirection dir)
 		}
 
 		meta = bm_get_meta(index);
-		if (meta->valBlkEnd != InvalidBlockNumber) 
+		if (meta->valBlkEnd != InvalidBlockNumber)
 		{
 			so->keyIndex = bm_get_val_index(index, values, isnull);
 		}
@@ -192,7 +192,7 @@ bmgetbitmap(IndexScanDesc scan, TIDBitmap *tbm)
 		}
 
 		meta = bm_get_meta(index);
-		if (meta->valBlkEnd != InvalidBlockNumber) 
+		if (meta->valBlkEnd != InvalidBlockNumber)
 		{
 			so->keyIndex = bm_get_val_index(index, values, isnull);
 		}

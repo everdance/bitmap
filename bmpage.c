@@ -67,16 +67,18 @@ bm_get_firstblk(Relation index, int valIdx)
 	return blkno;
 }
 
-BitmapMetaPageData* bm_get_meta(Relation index)
+BitmapMetaPageData *
+bm_get_meta(Relation index)
 {
-	Buffer buffer;
-	BitmapMetaPageData *meta, *metacpy;
-	int size;
+	Buffer		buffer;
+	BitmapMetaPageData *meta,
+			   *metacpy;
+	int			size;
 
 	buffer = ReadBuffer(index, BITMAP_METAPAGE_BLKNO);
 	LockBuffer(buffer, BUFFER_LOCK_SHARE);
 	meta = BitmapPageGetMeta(BufferGetPage(buffer));
-	size = offsetof(BitmapMetaPageData, firstBlk) + sizeof(BlockNumber)*meta->ndistinct;
+	size = offsetof(BitmapMetaPageData, firstBlk) + sizeof(BlockNumber) * meta->ndistinct;
 	metacpy = palloc0(size);
 	memcpy(metacpy, meta, size);
 	UnlockReleaseBuffer(buffer);
