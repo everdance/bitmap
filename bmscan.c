@@ -105,7 +105,7 @@ bmgettuple(IndexScanDesc scan, ScanDirection dir)
 		if (so->keyIndex < 0)
 			return false;
 
-		so->curBlk = bm_get_firstblk(index, so->keyIndex);
+		so->curBlk = bm_get_blkno(index, so->keyIndex);
 		if (so->curPage == NULL)
 		{
 			so->curPage = (Page) palloc(sizeof(PGAlignedBlock));
@@ -172,8 +172,6 @@ bmgetbitmap(IndexScanDesc scan, TIDBitmap *tbm)
 	BitmapTuple *itup;
 	ItemPointer tids = palloc0(sizeof(ItemPointerData) * MAX_HEAP_TUPLE_PER_PAGE);
 
-	scan->xs_recheck = false;
-
 	if (so->keyIndex < 0)
 	{
 		ScanKey		skey = scan->keyData;
@@ -201,7 +199,7 @@ bmgetbitmap(IndexScanDesc scan, TIDBitmap *tbm)
 		if (so->keyIndex < 0)
 			return 0;
 
-		so->curBlk = bm_get_firstblk(index, so->keyIndex);
+		so->curBlk = bm_get_blkno(index, so->keyIndex);
 	}
 
 	while (so->curBlk != InvalidBlockNumber)

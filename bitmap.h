@@ -133,7 +133,7 @@ extern Buffer bm_newbuf_exlocked(Relation index);
 extern void bm_init_page(Page page, uint16 pgtype);
 extern void bm_init_metapage(Relation index, ForkNumber fork);
 extern void bm_flush_cached(Relation index, BitmapBuildState *state);
-extern BlockNumber bm_get_firstblk(Relation index, int valIdx);
+extern BlockNumber bm_get_blkno(Relation index, int valIdx);
 extern BitmapMetaPageData* bm_get_meta(Relation index);
 
 
