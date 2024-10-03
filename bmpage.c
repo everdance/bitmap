@@ -45,26 +45,13 @@ bm_page_add_tup(Page page, BitmapTuple * tuple)
 BlockNumber
 bm_get_firstblk(Relation index, int valIdx)
 {
-	Page		page;
-	BlockNumber blkno;
-	Buffer		buffer;
-	BitmapMetaPageData *meta;
+	BitmapMetaPageData *meta = bm_get_meta(index);
 
 	Assert(valIdx >= 0);
-
-	buffer = ReadBuffer(index, BITMAP_METAPAGE_BLKNO);
-	LockBuffer(buffer, BUFFER_LOCK_SHARE);
-
-	page = BufferGetPage(buffer);
-	meta = BitmapPageGetMeta(page);
-
 	Assert(meta->magic == BITMAP_MAGIC_NUMBER);
 	Assert(meta->ndistinct > valIdx);
 
-	blkno = meta->firstBlk[valIdx];
-	UnlockReleaseBuffer(buffer);
-
-	return blkno;
+	return meta->firstBlk[valIdx];
 }
 
 BitmapMetaPageData *
