@@ -13,6 +13,8 @@
 #define BITMAP_MAGIC_NUMBER  0xDABC9876
 
 #define BITMAP_NSTRATEGIES 1
+#define BITMAP_EQUAL_PROC 1
+
 #define BITMAP_METAPAGE_BLKNO 0
 #define BITMAP_VALPAGE_START_BLKNO 1
 
@@ -32,16 +34,17 @@ typedef struct BitmapMetaPageData
 
 #define BitmapPageGetMeta(page) ((BitmapMetaPageData *) PageGetContents(page))
 
-
 #define BITMAP_PAGE_META 0x01
 #define BITMAP_PAGE_VALUE 0x02
 #define BITMAP_PAGE_INDEX 0x03
+
+#define BITMAP_PAGE_DELETED 0x01
 
 typedef struct BitmapPageSpecData {
   uint16 maxoff;
   BlockNumber nextBlk;
   uint16 pgtype;
-  uint16 unused;
+  uint16 flags;
 } BitmapPageSpecData;
 
 typedef BitmapPageSpecData *BitmapPageOpaque;
@@ -49,6 +52,8 @@ typedef BitmapPageSpecData *BitmapPageOpaque;
 #define BitmapPageGetOpaque(page)                                           \
   ((BitmapPageOpaque)PageGetSpecialPointer(page))
 
+#define BitmapPageSetDeleted(page) (BitmapPageGetOpaque(page)->flags |= BITMAP_PAGE_DELETED)
+#define BitmapPageDeleted(page) (BitmapPageGetOpaque(page)->flags & BITMAP_PAGE_DELETED)
 
 typedef struct BitmapOptions {} BitmapOptions;
 
@@ -66,6 +71,8 @@ typedef struct BitmapTuple {
 
 typedef struct BitmapState
 {
+  uint32 ndistinct;
+  BlockNumber *blocks; 
   MemoryContext tmpCxt;
 } BitmapState;
 
@@ -91,13 +98,6 @@ typedef struct BitmapScanOpaqueData
 } BitmapScanOpaqueData;
 
 typedef BitmapScanOpaqueData *BitmapScanOpaque;
-
-typedef struct xl_bm_insert
-{
-	BlockNumber heapBlk;
-	OffsetNumber offnum;
-} xl_bm_insert;
-
 
 extern bytea *bmoptions(Datum reloptions, bool validate);
 extern bool bminsert(Relation index, Datum *values, bool *isnull, ItemPointer ht_ctid,
@@ -134,6 +134,7 @@ extern void bm_init_page(Page page, uint16 pgtype);
 extern void bm_init_metapage(Relation index, ForkNumber fork);
 extern void bm_flush_cached(Relation index, BitmapBuildState *state);
 extern BlockNumber bm_get_firstblk(Relation index, int valIdx);
+extern BitmapMetaPageData* bm_get_meta(Relation index);
 
 
 extern BitmapTuple *bitmap_form_tuple(ItemPointer ctid);

@@ -67,31 +67,34 @@ bm_get_firstblk(Relation index, int valIdx)
 	return blkno;
 }
 
+BitmapMetaPageData *
+bm_get_meta(Relation index)
+{
+	Buffer		buffer;
+	BitmapMetaPageData *meta,
+			   *metacpy;
+	int			size;
+
+	buffer = ReadBuffer(index, BITMAP_METAPAGE_BLKNO);
+	LockBuffer(buffer, BUFFER_LOCK_SHARE);
+	meta = BitmapPageGetMeta(BufferGetPage(buffer));
+	size = offsetof(BitmapMetaPageData, firstBlk) + sizeof(BlockNumber) * meta->ndistinct;
+	metacpy = palloc0(size);
+	memcpy(metacpy, meta, size);
+	UnlockReleaseBuffer(buffer);
+
+	return metacpy;
+}
 
 int
 bm_get_val_index(Relation index, Datum *values, bool *isnull)
 {
-	BlockNumber blkno;
+	BlockNumber blkno = BITMAP_VALPAGE_START_BLKNO;
 	int			idx = 0;
 	Buffer		buffer;
-	Buffer		metabuf;
-	BitmapMetaPageData *metadata;
 	Page		page;
 	OffsetNumber maxoff;
 	BitmapPageOpaque opaque;
-
-	metabuf = ReadBuffer(index, BITMAP_METAPAGE_BLKNO);
-	LockBuffer(metabuf, BUFFER_LOCK_SHARE);
-	metadata = BitmapPageGetMeta(BufferGetPage(metabuf));
-	blkno = metadata->valBlkEnd;
-	UnlockReleaseBuffer(metabuf);
-
-	if (blkno == InvalidBlockNumber)
-	{
-		return -1;
-	}
-
-	blkno = BITMAP_VALPAGE_START_BLKNO;
 
 	while (BlockNumberIsValid(blkno))
 	{
@@ -146,7 +149,7 @@ bm_newbuf_exlocked(Relation index)
 		{
 			Page		page = BufferGetPage(buffer);
 
-			if (PageIsNew(page))
+			if (PageIsNew(page) || BitmapPageDeleted(page))
 				return buffer;
 
 			LockBuffer(buffer, BUFFER_LOCK_UNLOCK);

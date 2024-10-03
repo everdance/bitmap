@@ -62,9 +62,6 @@ bm_insert_tuple(Relation index, BlockNumber blkno, ItemPointer ctid)
 	/* of inserting duplicate records for one heap block */
 	while (blkno != InvalidBlockNumber)
 	{
-		if (buffer != InvalidBuffer)
-			UnlockReleaseBuffer(buffer);
-
 		buffer = ReadBuffer(index, blkno);
 		LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
 		page = BufferGetPage(buffer);
@@ -77,6 +74,11 @@ bm_insert_tuple(Relation index, BlockNumber blkno, ItemPointer ctid)
 
 		opaque = BitmapPageGetOpaque(page);
 		blkno = opaque->nextBlk;
+
+		if (blkno == InvalidBlockNumber)
+			break;
+
+		UnlockReleaseBuffer(buffer);
 	}
 
 	nbuffer = bm_newbuf_exlocked(index);
@@ -94,9 +96,6 @@ bm_insert_tuple(Relation index, BlockNumber blkno, ItemPointer ctid)
 
 	if (!bm_page_add_tup(page, tup))
 		elog(ERROR, "insert bitmap tuple failed on new page");
-
-	opaque = BitmapPageGetOpaque(page);
-	opaque->nextBlk = InvalidBlockNumber;
 
 	UnlockReleaseBuffer(nbuffer);
 
@@ -165,6 +164,7 @@ bminsert(Relation index, Datum *values, bool *isnull, ItemPointer ht_ctid,
 	BlockNumber firstblk;
 	Buffer		metabuf;
 	int			valindex = -1;
+	bool		valExists = true;
 
 	if (bmstate == NULL)
 	{
@@ -184,7 +184,11 @@ bminsert(Relation index, Datum *values, bool *isnull, ItemPointer ht_ctid,
 	LockBuffer(metabuf, BUFFER_LOCK_SHARE);
 	metadata = BitmapPageGetMeta(BufferGetPage(metabuf));
 
-	valindex = bm_get_val_index(index, values, isnull);
+	if (metadata->ndistinct > 0)
+	{
+		valindex = bm_get_val_index(index, values, isnull);
+	}
+
 	if (valindex < 0)
 	{
 		if (metadata->ndistinct == MAX_DISTINCT)
@@ -199,12 +203,19 @@ bminsert(Relation index, Datum *values, bool *isnull, ItemPointer ht_ctid,
 		itup = index_form_tuple(RelationGetDescr(index), values, isnull);
 		metadata->valBlkEnd = bm_insert_val(index, metadata->valBlkEnd, itup);
 		valindex = metadata->ndistinct++;
+		valExists = false;
 	}
 
 	if (valindex >= 0)
 	{
 		firstblk = metadata->firstBlk[valindex];
 		metadata->firstBlk[valindex] = bm_insert_tuple(index, firstblk, ht_ctid);
+		/* index value exists but previously no index tuples due to deletion */
+		/* we need to increase distinct value as well */
+		if (firstblk == InvalidBlockNumber && valExists)
+		{
+			metadata->ndistinct++;
+		}
 	}
 
 	UnlockReleaseBuffer(metabuf);
