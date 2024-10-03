@@ -20,7 +20,7 @@ bmbulkdelete(IndexVacuumInfo *info,
 	BitmapMetaPageData *meta;
 	Page		page;
 
-	/* GenericXLogState *gxlogState; */
+	GenericXLogState *gxlogState;
 	BitmapPageOpaque opaque;
 	ItemPointer tids = palloc0(sizeof(ItemPointerData) * MAX_HEAP_TUPLE_PER_PAGE);
 
@@ -52,15 +52,14 @@ bmbulkdelete(IndexVacuumInfo *info,
 					   *itupEnd;
 			OffsetNumber maxoff;
 
-			/* bool		hasDelete = false; */
+			bool		hasDelete = false;
 
 			vacuum_delay_point();
 
 			buffer = ReadBuffer(index, blkno);
 			LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
-			/* gxlogState = GenericXLogStart(index); */
-			/* page = GenericXLogRegisterBuffer(gxlogState, buffer, 0); */
-			page = BufferGetPage(buffer);
+			gxlogState = GenericXLogStart(index);
+			page = GenericXLogRegisterBuffer(gxlogState, buffer, 0);
 			opaque = BitmapPageGetOpaque(page);
 
 			maxoff = opaque->maxoff;
@@ -81,7 +80,7 @@ bmbulkdelete(IndexVacuumInfo *info,
 
 						itup->bm[idx / 32] &= ~(0x1 << (idx % 32));
 						delsTuple++;
-						/* hasDelete = true; */
+						hasDelete = true;
 						stats->tuples_removed += 1;
 					}
 				}
@@ -108,16 +107,16 @@ bmbulkdelete(IndexVacuumInfo *info,
 				}
 				((PageHeader) page)->pd_lower = (Pointer) itupPtr - page;
 			}
-			/* if (hasDelete) */
-			/* { */
-			/* GenericXLogFinish(gxlogState); */
-			/* } */
-			/* else */
-			/* { */
-			/* GenericXLogAbort(gxlogState); */
-			/* } */
-
 			blkno = opaque->nextBlk;
+
+			if (hasDelete)
+			{
+				GenericXLogFinish(gxlogState);
+			}
+			else
+			{
+				GenericXLogAbort(gxlogState);
+			}
 			UnlockReleaseBuffer(buffer);
 		}
 	}
