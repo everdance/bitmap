@@ -128,7 +128,7 @@ bmgettuple(IndexScanDesc scan, ScanDirection dir)
 		}
 
 		itup = BitmapPageGetTuple(so->curPage, so->offset);
-		htupidx = bm_tuple_next_htpid(itup, &ipd, so->htupidx);
+		htupidx = bm_tuple_next_htpid(itup, &ipd, so->htupidx + 1);
 
 		if (htupidx >= 0)
 		{

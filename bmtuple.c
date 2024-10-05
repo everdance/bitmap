@@ -43,7 +43,7 @@ bm_tuple_next_htpid(BitmapTuple * tup, ItemPointer tid, int start)
 {
 	int			i;
 
-	for (i = start + 1; i < MAX_HEAP_TUPLE_PER_PAGE; i++)
+	for (i = start; i < MAX_HEAP_TUPLE_PER_PAGE; i++)
 	{
 		if (0x1 << (i % 32) & (tup->bm[i / 32]))
 		{

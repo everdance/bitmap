@@ -80,7 +80,7 @@ CREATE UNLOGGED TABLE test_tblu (
 );
 
 INSERT INTO test_tblu SELECT i%10, substr(md5(i::text), 1, 1) FROM generate_series(1,2000) i;
-CREATE INDEX bitmapidxu ON test_tblu USING bitmap (i, t) WITH (col2 = 4);
+CREATE INDEX bitmapidxu ON test_tblu USING bitmap (i);
 
 SET enable_seqscan=off;
 SET enable_bitmapscan=on;

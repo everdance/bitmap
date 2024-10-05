@@ -57,7 +57,8 @@ typedef BitmapPageSpecData *BitmapPageOpaque;
 
 typedef struct BitmapOptions {} BitmapOptions;
 
-#define MAX_HEAP_TUPLE_PER_PAGE 220
+//  at most 226 tule can be stored in 8K page
+#define MAX_HEAP_TUPLE_PER_PAGE 226
 
 #define MAX_BITS_32 (MAX_HEAP_TUPLE_PER_PAGE/32 + 1)
 
