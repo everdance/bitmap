@@ -164,6 +164,7 @@ bm_init_page(Page page, uint16 pgtype)
 	opaque = BitmapPageGetOpaque(page);
 	opaque->maxoff = 0;
 	opaque->nextBlk = InvalidBlockNumber;
+	opaque->flags &= ~BITMAP_PAGE_DELETED;
 	opaque->pgtype = pgtype;
 }
 
@@ -206,10 +207,8 @@ void
 bm_flush_cached(Relation index, BitmapBuildState * state)
 {
 	BitmapPageOpaque opaque;
-	Page		page;
-	Page		bufpage;
-	Buffer		buffer;
-	Buffer		prevbuff;
+	Page		page, prepage, bufpage;
+	Buffer		buffer, prevbuff = InvalidBuffer;
 	GenericXLogState *xlogstate;
 
 	for (size_t i = 0; i < state->ndistinct; i++)
@@ -220,23 +219,27 @@ bm_flush_cached(Relation index, BitmapBuildState * state)
 		if (opaque->maxoff > 0)
 		{
 			buffer = bm_newbuf_exlocked(index);
+			xlogstate = GenericXLogStart(index);
 
 			if (state->prevBlks[i] != InvalidBlockNumber)
 			{
 				prevbuff = ReadBuffer(index, state->prevBlks[i]);
 				LockBuffer(prevbuff, BUFFER_LOCK_EXCLUSIVE);
-				opaque = BitmapPageGetOpaque(BufferGetPage(prevbuff));
-				opaque->nextBlk = state->prevBlks[i];
-				UnlockReleaseBuffer(prevbuff);
+				prepage = GenericXLogRegisterBuffer(xlogstate, prevbuff, 0);
+
+				BitmapPageGetOpaque(prepage)->nextBlk = BufferGetBlockNumber(buffer);
 			}
 
 			if (state->firstBlks[i] == InvalidBlockNumber)
 				state->firstBlks[i] = BufferGetBlockNumber(buffer);
 
-			xlogstate = GenericXLogStart(index);
 			page = GenericXLogRegisterBuffer(xlogstate, buffer, GENERIC_XLOG_FULL_IMAGE);
 			memcpy(page, bufpage, BLCKSZ);
 			GenericXLogFinish(xlogstate);
+
+			if (prevbuff != InvalidBuffer)
+				UnlockReleaseBuffer(prevbuff);
+			
 			UnlockReleaseBuffer(buffer);
 		}
 	}

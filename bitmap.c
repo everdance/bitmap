@@ -31,11 +31,6 @@ _PG_init(void)
 	bm_relopt_kind = add_reloption_kind();
 }
 
-static void
-initBitmapState(BitmapState * state, Relation index)
-{
-}
-
 bytea *
 bmoptions(Datum reloptions, bool validate)
 {
@@ -56,24 +51,29 @@ bm_insert_tuple(Relation index, BlockNumber blkno, ItemPointer ctid)
 	Page		page;
 	BitmapPageOpaque opaque;
 	BlockNumber firstBlk = blkno;
+	GenericXLogState *gxstate;
 
 	/* insert bitmap tuple from the first block */
 	/* because we never delete bitmap tuple, there's no possibility */
 	/* of inserting duplicate records for one heap block */
 	while (blkno != InvalidBlockNumber)
 	{
+		gxstate = GenericXLogStart(index);
+
 		buffer = ReadBuffer(index, blkno);
 		LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
-		page = BufferGetPage(buffer);
+		page = GenericXLogRegisterBuffer(gxstate, buffer, 0);
 
 		if (bm_page_add_tup(page, tup))
-		{
+		{	
+			GenericXLogFinish(gxstate);
 			UnlockReleaseBuffer(buffer);
 			return firstBlk;
 		}
 
 		opaque = BitmapPageGetOpaque(page);
 		blkno = opaque->nextBlk;
+		GenericXLogAbort(gxstate);
 
 		if (blkno == InvalidBlockNumber)
 			break;
@@ -81,22 +81,25 @@ bm_insert_tuple(Relation index, BlockNumber blkno, ItemPointer ctid)
 		UnlockReleaseBuffer(buffer);
 	}
 
+	gxstate = GenericXLogStart(index);
 	nbuffer = bm_newbuf_exlocked(index);
 	blkno = BufferGetBlockNumber(nbuffer);
-
 	if (buffer != InvalidBuffer)
 	{
+		page = GenericXLogRegisterBuffer(gxstate, buffer, 0);
 		opaque = BitmapPageGetOpaque(page);
 		opaque->nextBlk = blkno;
-		UnlockReleaseBuffer(buffer);
 	}
 
-	page = BufferGetPage(nbuffer);
+	page = GenericXLogRegisterBuffer(gxstate, nbuffer, GENERIC_XLOG_FULL_IMAGE);
 	bm_init_page(page, BITMAP_PAGE_INDEX);
 
 	if (!bm_page_add_tup(page, tup))
 		elog(ERROR, "insert bitmap tuple failed on new page");
 
+	GenericXLogFinish(gxstate);
+	if (buffer != InvalidBuffer)
+		UnlockReleaseBuffer(buffer);
 	UnlockReleaseBuffer(nbuffer);
 
 	return firstBlk == InvalidBlockNumber ? blkno : firstBlk;
@@ -105,12 +108,14 @@ bm_insert_tuple(Relation index, BlockNumber blkno, ItemPointer ctid)
 static BlockNumber
 bm_insert_val(Relation index, BlockNumber endblk, IndexTuple itup)
 {
-	BitmapPageOpaque opaque;
 	Page		page;
 	OffsetNumber maxoff;
 	BlockNumber blkno;
 	Buffer		buffer;
 	Buffer		nbuffer;
+	GenericXLogState *gxstate;
+
+	gxstate = GenericXLogStart(index);
 
 	if (endblk == InvalidBlockNumber)
 	{
@@ -118,14 +123,14 @@ bm_insert_val(Relation index, BlockNumber endblk, IndexTuple itup)
 		blkno = BufferGetBlockNumber(buffer);
 		endblk = blkno;
 		Assert(blkno == BITMAP_VALPAGE_START_BLKNO);
-		page = BufferGetPage(buffer);
+		page = GenericXLogRegisterBuffer(gxstate, buffer, GENERIC_XLOG_FULL_IMAGE);
 		bm_init_page(page, BITMAP_PAGE_VALUE);
 	}
 	else
 	{
 		buffer = ReadBuffer(index, endblk);
-		page = BufferGetPage(buffer);
 		LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
+		page = GenericXLogRegisterBuffer(gxstate, buffer, 0);
 	}
 
 	if (PageGetFreeSpace(page) >= (IndexTupleSize(itup) + sizeof(ItemIdData)))
@@ -134,19 +139,23 @@ bm_insert_val(Relation index, BlockNumber endblk, IndexTuple itup)
 		if (PageAddItem(page, (Item) itup, IndexTupleSize(itup), maxoff, false, false) != maxoff)
 			elog(ERROR, "failed to add item to index data page");
 
+		GenericXLogFinish(gxstate);
 		UnlockReleaseBuffer(buffer);
 		return endblk;
 	}
 
 	nbuffer = bm_newbuf_exlocked(index);
 	blkno = BufferGetBlockNumber(nbuffer);
-	opaque = BitmapPageGetOpaque(page);
-	opaque->nextBlk = blkno;
-	UnlockReleaseBuffer(buffer);
+	BitmapPageGetOpaque(page)->nextBlk = blkno;
 
-	page = BufferGetPage(nbuffer);
+	page = GenericXLogRegisterBuffer(gxstate, nbuffer, GENERIC_XLOG_FULL_IMAGE);
 	bm_init_page(page, BITMAP_PAGE_VALUE);
-	PageAddItem(page, (Item) itup, IndexTupleSize(itup), 1, false, false);
+
+	if (PageAddItem(page, (Item) itup, IndexTupleSize(itup), 1, false, false) != FirstOffsetNumber)
+		elog(ERROR, "fail to add bm index tuple");
+
+	GenericXLogFinish(gxstate);
+	UnlockReleaseBuffer(buffer);
 	UnlockReleaseBuffer(nbuffer);
 
 	return blkno;
@@ -178,7 +187,6 @@ bminsert(Relation index, Datum *values, bool *isnull, ItemPointer ht_ctid,
 
 
 	oldCxt = MemoryContextSwitchTo(bmstate->tmpCxt);
-	initBitmapState(bmstate, index);
 
 	metabuf = ReadBuffer(index, BITMAP_METAPAGE_BLKNO);
 	LockBuffer(metabuf, BUFFER_LOCK_SHARE);
