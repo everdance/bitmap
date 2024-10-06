@@ -73,6 +73,8 @@ typedef struct BitmapTuple {
 typedef struct BitmapState
 {
   uint32 ndistinct;
+  BlockNumber valBlkEnd;
+  BlockNumber firstBlk;
   BlockNumber *blocks; 
   MemoryContext tmpCxt;
 } BitmapState;
