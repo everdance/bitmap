@@ -117,8 +117,8 @@ bm_get_val_index(Relation index, Datum *values, bool *isnull)
 Buffer
 bm_newbuffer_locked(Relation index)
 {
-	Buffer	buffer;
-	Page 	page;
+	Buffer		buffer;
+	Page		page;
 
 	for (;;)
 	{
@@ -208,8 +208,11 @@ void
 bm_flush_cached(Relation index, BitmapBuildState * state)
 {
 	BitmapPageOpaque opaque;
-	Page		page, prepage, bufpage;
-	Buffer		buffer, prevbuff = InvalidBuffer;
+	Page		page,
+				prepage,
+				bufpage;
+	Buffer		buffer,
+				prevbuff = InvalidBuffer;
 	GenericXLogState *xlogstate;
 
 	for (size_t i = 0; i < state->ndistinct; i++)
@@ -240,7 +243,7 @@ bm_flush_cached(Relation index, BitmapBuildState * state)
 
 			if (prevbuff != InvalidBuffer)
 				UnlockReleaseBuffer(prevbuff);
-			
+
 			UnlockReleaseBuffer(buffer);
 		}
 	}

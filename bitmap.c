@@ -61,16 +61,20 @@ bm_insert_tuple(Relation index, BlockNumber firstBlk, ItemPointer ctid)
 
 		gxstate = GenericXLogStart(index);
 		page = GenericXLogRegisterBuffer(gxstate, buffer, 0);
-		// TODO: ??? if we can delete tuple, how can we ensure we don't insert mulitple
-		//  index tuple for the same heap block ???
-		// recently vacuumed page, not cleaned up yet
+
+		/*
+		 * TODO: ??? if we can delete tuple, how can we ensure we don't insert
+		 * mulitple
+		 */
+		/* index tuple for the same heap block ??? */
+		/* recently vacuumed page, not cleaned up yet */
 		if (BitmapPageDeleted(page))
 		{
 			bm_init_page(page, BITMAP_PAGE_INDEX);
 		}
 
 		if (bm_page_add_tup(page, tup))
-		{	
+		{
 			GenericXLogFinish(gxstate);
 			UnlockReleaseBuffer(buffer);
 			return firstBlk;
@@ -80,7 +84,7 @@ bm_insert_tuple(Relation index, BlockNumber firstBlk, ItemPointer ctid)
 		blkno = opaque->nextBlk;
 
 		GenericXLogAbort(gxstate);
-		// keep last buffer active for linking new buffer page
+		/* keep last buffer active for linking new buffer page */
 		if (blkno != InvalidBlockNumber)
 			UnlockReleaseBuffer(buffer);
 	}
@@ -179,7 +183,7 @@ bminsert(Relation index, Datum *values, bool *isnull, ItemPointer ht_ctid,
 	BitmapMetaPageData *metadata;
 	BlockNumber firstblk;
 	Buffer		metabuf;
-	Page page;
+	Page		page;
 	int			valindex = -1;
 	GenericXLogState *gxstate;
 
@@ -188,15 +192,15 @@ bminsert(Relation index, Datum *values, bool *isnull, ItemPointer ht_ctid,
 		oldCxt = MemoryContextSwitchTo(indexInfo->ii_Context);
 		state = palloc0(sizeof(BitmapState));
 		state->tmpCxt = AllocSetContextCreate(CurrentMemoryContext, "bitmap insert context",
-												ALLOCSET_DEFAULT_SIZES);
+											  ALLOCSET_DEFAULT_SIZES);
 		indexInfo->ii_AmCache = (void *) state;
 		MemoryContextSwitchTo(oldCxt);
 	}
 
 	oldCxt = MemoryContextSwitchTo(state->tmpCxt);
-	// TODO: clean this up, we should share lock meta page ???
-	// otherwise we can run into concurrency issues on insert same values
-	// when the key values do not exist
+	/* TODO: clean this up, we should share lock meta page ??? */
+	/* otherwise we can run into concurrency issues on insert same values */
+	/* when the key values do not exist */
 	metadata = bm_get_meta(index);
 	state->ndistinct = metadata->ndistinct;
 	state->valBlkEnd = metadata->valBlkEnd;
@@ -220,7 +224,7 @@ bminsert(Relation index, Datum *values, bool *isnull, ItemPointer ht_ctid,
 		firstblk = InvalidBlockNumber;
 		if (valindex < metadata->ndistinct)
 			firstblk = metadata->firstBlk[valindex];
-		
+
 		state->firstBlk = bm_insert_tuple(index, firstblk, ht_ctid);
 		/* index value exists but previously no index tuples due to deletion */
 		/* we need to increase distinct value as well */
@@ -229,9 +233,10 @@ bminsert(Relation index, Datum *values, bool *isnull, ItemPointer ht_ctid,
 			state->ndistinct++;
 		}
 
-		// update meta page data
-		if (firstblk == InvalidBlockNumber || state->ndistinct < metadata->ndistinct) {
-	    	gxstate = GenericXLogStart(index);
+		/* update meta page data */
+		if (firstblk == InvalidBlockNumber || state->ndistinct < metadata->ndistinct)
+		{
+			gxstate = GenericXLogStart(index);
 			metabuf = ReadBuffer(index, BITMAP_METAPAGE_BLKNO);
 			LockBuffer(metabuf, BUFFER_LOCK_EXCLUSIVE);
 			page = GenericXLogRegisterBuffer(gxstate, metabuf, 0);
@@ -262,8 +267,10 @@ bmBuildCallback(Relation index, ItemPointer tid, Datum *values,
 	BitmapTuple *btup;
 	BlockNumber blkno;
 	Page		bufpage;
-	Page		page, prevpage;
-	Buffer		buffer, pbuffer = InvalidBuffer;
+	Page		page,
+				prevpage;
+	Buffer		buffer,
+				pbuffer = InvalidBuffer;
 	GenericXLogState *gxstate;
 	int			valindex = -1;
 
@@ -316,7 +323,7 @@ bmBuildCallback(Relation index, ItemPointer tid, Datum *values,
 		{
 			pbuffer = ReadBuffer(index, buildstate->prevBlks[valindex]);
 			LockBuffer(pbuffer, BUFFER_LOCK_EXCLUSIVE);
-			prevpage = GenericXLogRegisterBuffer(gxstate, pbuffer, 0); 
+			prevpage = GenericXLogRegisterBuffer(gxstate, pbuffer, 0);
 			opaque = BitmapPageGetOpaque(prevpage);
 			opaque->nextBlk = blkno;
 		}
@@ -350,7 +357,7 @@ bmbuild(Relation heap, Relation index,
 	Buffer		buffer;
 	Page		metapage;
 	BitmapMetaPageData *metadata;
-	GenericXLogState* gxstate;
+	GenericXLogState *gxstate;
 
 	if (RelationGetNumberOfBlocks(index) != 0)
 		elog(ERROR, "index \"%s\" already contains data",

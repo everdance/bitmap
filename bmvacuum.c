@@ -178,7 +178,7 @@ bmvacuumcleanup(IndexVacuumInfo *info, IndexBulkDeleteResult *stats)
 			if (BitmapPageDeleted(page))
 			{
 				stats->pages_free++;
-				// remove deleted page from the list
+				/* remove deleted page from the list */
 				if (preblk != InvalidBlockNumber)
 				{
 					prevbuf = ReadBuffer(index, preblk);
