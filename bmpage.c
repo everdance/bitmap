@@ -115,9 +115,10 @@ bm_get_val_index(Relation index, Datum *values, bool *isnull)
 }
 
 Buffer
-bm_newbuf_exlocked(Relation index)
+bm_newbuffer_locked(Relation index)
 {
-	Buffer		buffer;
+	Buffer	buffer;
+	Page 	page;
 
 	for (;;)
 	{
@@ -134,9 +135,9 @@ bm_newbuf_exlocked(Relation index)
 		 */
 		if (ConditionalLockBuffer(buffer))
 		{
-			Page		page = BufferGetPage(buffer);
+			page = BufferGetPage(buffer);
 
-			if (PageIsNew(page) || BitmapPageDeleted(page))
+			if (BitmapPageDeleted(page))
 				return buffer;
 
 			LockBuffer(buffer, BUFFER_LOCK_UNLOCK);
@@ -218,7 +219,7 @@ bm_flush_cached(Relation index, BitmapBuildState * state)
 
 		if (opaque->maxoff > 0)
 		{
-			buffer = bm_newbuf_exlocked(index);
+			buffer = bm_newbuffer_locked(index);
 			xlogstate = GenericXLogStart(index);
 
 			if (state->prevBlks[i] != InvalidBlockNumber)
