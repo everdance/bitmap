@@ -269,7 +269,7 @@ bm_indexp(PG_FUNCTION_ARGS)
 
 		initStringInfo(&s);
 		for (i = 0; i < MAX_BITS_32; i++)
-			appendStringInfo(&s, "%X ", bmtuple->bm[i]);
+			appendStringInfo(&s, "%08X ", bmtuple->bm[i]);
 
 		rvalues[2] = PointerGetDatum(cstring_to_text(s.data));
 		tuple = heap_form_tuple(ccdata->tupd, rvalues, rnull);

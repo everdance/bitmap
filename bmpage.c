@@ -43,28 +43,15 @@ bm_page_add_tup(Page page, BitmapTuple * tuple)
 }
 
 BlockNumber
-bm_get_firstblk(Relation index, int valIdx)
+bm_get_blkno(Relation index, int valIdx)
 {
-	Page		page;
-	BlockNumber blkno;
-	Buffer		buffer;
-	BitmapMetaPageData *meta;
+	BitmapMetaPageData *meta = bm_get_meta(index);
 
 	Assert(valIdx >= 0);
-
-	buffer = ReadBuffer(index, BITMAP_METAPAGE_BLKNO);
-	LockBuffer(buffer, BUFFER_LOCK_SHARE);
-
-	page = BufferGetPage(buffer);
-	meta = BitmapPageGetMeta(page);
-
 	Assert(meta->magic == BITMAP_MAGIC_NUMBER);
 	Assert(meta->ndistinct > valIdx);
 
-	blkno = meta->firstBlk[valIdx];
-	UnlockReleaseBuffer(buffer);
-
-	return blkno;
+	return meta->firstBlk[valIdx];
 }
 
 BitmapMetaPageData *
@@ -128,9 +115,10 @@ bm_get_val_index(Relation index, Datum *values, bool *isnull)
 }
 
 Buffer
-bm_newbuf_exlocked(Relation index)
+bm_newbuffer_locked(Relation index)
 {
 	Buffer		buffer;
+	Page		page;
 
 	for (;;)
 	{
@@ -147,9 +135,9 @@ bm_newbuf_exlocked(Relation index)
 		 */
 		if (ConditionalLockBuffer(buffer))
 		{
-			Page		page = BufferGetPage(buffer);
+			page = BufferGetPage(buffer);
 
-			if (PageIsNew(page) || BitmapPageDeleted(page))
+			if (BitmapPageDeleted(page))
 				return buffer;
 
 			LockBuffer(buffer, BUFFER_LOCK_UNLOCK);
@@ -177,6 +165,7 @@ bm_init_page(Page page, uint16 pgtype)
 	opaque = BitmapPageGetOpaque(page);
 	opaque->maxoff = 0;
 	opaque->nextBlk = InvalidBlockNumber;
+	opaque->flags &= ~BITMAP_PAGE_DELETED;
 	opaque->pgtype = pgtype;
 }
 
@@ -219,10 +208,11 @@ void
 bm_flush_cached(Relation index, BitmapBuildState * state)
 {
 	BitmapPageOpaque opaque;
-	Page		page;
-	Page		bufpage;
-	Buffer		buffer;
-	Buffer		prevbuff;
+	Page		page,
+				prepage,
+				bufpage;
+	Buffer		buffer,
+				prevbuff = InvalidBuffer;
 	GenericXLogState *xlogstate;
 
 	for (size_t i = 0; i < state->ndistinct; i++)
@@ -232,24 +222,28 @@ bm_flush_cached(Relation index, BitmapBuildState * state)
 
 		if (opaque->maxoff > 0)
 		{
-			buffer = bm_newbuf_exlocked(index);
+			buffer = bm_newbuffer_locked(index);
+			xlogstate = GenericXLogStart(index);
 
 			if (state->prevBlks[i] != InvalidBlockNumber)
 			{
 				prevbuff = ReadBuffer(index, state->prevBlks[i]);
 				LockBuffer(prevbuff, BUFFER_LOCK_EXCLUSIVE);
-				opaque = BitmapPageGetOpaque(BufferGetPage(prevbuff));
-				opaque->nextBlk = state->prevBlks[i];
-				UnlockReleaseBuffer(prevbuff);
+				prepage = GenericXLogRegisterBuffer(xlogstate, prevbuff, 0);
+
+				BitmapPageGetOpaque(prepage)->nextBlk = BufferGetBlockNumber(buffer);
 			}
 
 			if (state->firstBlks[i] == InvalidBlockNumber)
 				state->firstBlks[i] = BufferGetBlockNumber(buffer);
 
-			xlogstate = GenericXLogStart(index);
 			page = GenericXLogRegisterBuffer(xlogstate, buffer, GENERIC_XLOG_FULL_IMAGE);
 			memcpy(page, bufpage, BLCKSZ);
 			GenericXLogFinish(xlogstate);
+
+			if (prevbuff != InvalidBuffer)
+				UnlockReleaseBuffer(prevbuff);
+
 			UnlockReleaseBuffer(buffer);
 		}
 	}

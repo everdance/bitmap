@@ -57,7 +57,8 @@ typedef BitmapPageSpecData *BitmapPageOpaque;
 
 typedef struct BitmapOptions {} BitmapOptions;
 
-#define MAX_HEAP_TUPLE_PER_PAGE 220
+//  at most 226 tule can be stored in 8K page
+#define MAX_HEAP_TUPLE_PER_PAGE 226
 
 #define MAX_BITS_32 (MAX_HEAP_TUPLE_PER_PAGE/32 + 1)
 
@@ -72,6 +73,8 @@ typedef struct BitmapTuple {
 typedef struct BitmapState
 {
   uint32 ndistinct;
+  BlockNumber valBlkEnd;
+  BlockNumber firstBlk;
   BlockNumber *blocks; 
   MemoryContext tmpCxt;
 } BitmapState;
@@ -129,11 +132,11 @@ extern IndexBulkDeleteResult *bmvacuumcleanup(IndexVacuumInfo *info, IndexBulkDe
 
 extern bool bm_page_add_tup(Page page, BitmapTuple *tuple);
 extern int bm_get_val_index(Relation index, Datum *values, bool *isnull);
-extern Buffer bm_newbuf_exlocked(Relation index);
+extern Buffer bm_newbuffer_locked(Relation index);
 extern void bm_init_page(Page page, uint16 pgtype);
 extern void bm_init_metapage(Relation index, ForkNumber fork);
 extern void bm_flush_cached(Relation index, BitmapBuildState *state);
-extern BlockNumber bm_get_firstblk(Relation index, int valIdx);
+extern BlockNumber bm_get_blkno(Relation index, int valIdx);
 extern BitmapMetaPageData* bm_get_meta(Relation index);
 
 
