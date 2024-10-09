@@ -51,7 +51,7 @@ bm_get_blkno(Relation index, int valIdx)
 	Assert(meta->magic == BITMAP_MAGIC_NUMBER);
 	Assert(meta->ndistinct > valIdx);
 
-	return meta->firstBlk[valIdx];
+	return meta->startBlk[valIdx];
 }
 
 BitmapMetaPageData *
@@ -65,12 +65,108 @@ bm_get_meta(Relation index)
 	buffer = ReadBuffer(index, BITMAP_METAPAGE_BLKNO);
 	LockBuffer(buffer, BUFFER_LOCK_SHARE);
 	meta = BitmapPageGetMeta(BufferGetPage(buffer));
-	size = offsetof(BitmapMetaPageData, firstBlk) + sizeof(BlockNumber) * meta->ndistinct;
+	size = offsetof(BitmapMetaPageData, startBlk) + sizeof(BlockNumber) * meta->ndistinct;
 	metacpy = palloc0(size);
 	memcpy(metacpy, meta, size);
 	UnlockReleaseBuffer(buffer);
 
 	return metacpy;
+}
+
+/* insert index key values into value page, starts from block 1
+   index values are never deleted onced inserted, so the pages only keep extending */
+int
+bm_insert_val(Relation index, Datum *values, bool *isnull)
+{
+	Page		page;
+	OffsetNumber maxoff, off;
+	BlockNumber blkno;
+	Buffer		buffer;
+	Buffer		nbuffer;
+	BitmapPageOpaque opaque;
+	IndexTuple itup;
+	int valIndex = 0;
+	GenericXLogState *gxstate;
+
+start:
+    blkno = BITMAP_VALPAGE_START_BLKNO;
+	for (;;)
+	{
+		buffer = ReadBuffer(index, blkno);
+		LockBuffer(buffer, BUFFER_LOCK_SHARE);
+		page = BufferGetPage(buffer);
+		maxoff = PageGetMaxOffsetNumber(page);
+		opaque = BitmapPageGetOpaque(page);
+
+		Assert(opaque->pgtype == BITMAP_PAGE_VALUE);
+
+		for (off = FirstOffsetNumber; off <= maxoff; off = OffsetNumberNext(off))
+		{
+			ItemId		itid = PageGetItemId(page, off);
+			IndexTuple	idxtuple = (IndexTuple) PageGetItem(page, itid);
+
+			if (bm_vals_equal(index, values, isnull, idxtuple))
+			{
+				UnlockReleaseBuffer(buffer);
+				return valIndex;
+			}
+
+			valIndex++;
+		}
+
+		blkno = opaque->nextBlk;
+		if (blkno == InvalidBlockNumber)
+		{
+			break;
+		}
+
+		UnlockReleaseBuffer(buffer);
+	}
+
+	if (valIndex == MAX_DISTINCT - 1)
+		elog(WARNING, "max distinct exceeded on bitmap index \"%s\"",
+					RelationGetRelationName(index));
+
+
+	gxstate = GenericXLogStart(index);
+	LockBuffer(buffer, BUFFER_LOCK_UNLOCK);
+	LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
+	page = GenericXLogRegisterBuffer(gxstate, buffer, 0);
+
+	/*contention: new values has been inserted into the page after we upgrade to exclusive lock */
+	if (PageGetMaxOffsetNumber(page) != maxoff)
+	{
+		 valIndex = 0;
+		 GenericXLogAbort(gxstate);
+		 UnlockReleaseBuffer(buffer);
+		goto start;
+	}
+
+	itup = index_form_tuple(RelationGetDescr(index), values, isnull);
+	if (PageGetFreeSpace(page) >= (IndexTupleSize(itup) + sizeof(ItemIdData)))
+	{
+		maxoff = PageGetMaxOffsetNumber(page) + 1;
+		if (PageAddItem(page, (Item) itup, IndexTupleSize(itup), maxoff, false, false) != maxoff)
+			elog(ERROR, "failed to add item to index data page");
+
+		GenericXLogFinish(gxstate);
+		UnlockReleaseBuffer(buffer);
+		return ++valIndex;
+	}
+
+	nbuffer = bm_newbuffer_locked(index);
+	BitmapPageGetOpaque(page)->nextBlk = BufferGetBlockNumber(nbuffer);
+	page = GenericXLogRegisterBuffer(gxstate, nbuffer, GENERIC_XLOG_FULL_IMAGE);
+	bm_init_page(page, BITMAP_PAGE_VALUE);
+
+	if (PageAddItem(page, (Item) itup, IndexTupleSize(itup), 1, false, false) != FirstOffsetNumber)
+		elog(ERROR, "fail to add index value");
+
+	GenericXLogFinish(gxstate);
+	UnlockReleaseBuffer(buffer);
+	UnlockReleaseBuffer(nbuffer);
+
+	return ++valIndex;
 }
 
 int
@@ -89,8 +185,6 @@ bm_get_val_index(Relation index, Datum *values, bool *isnull)
 		LockBuffer(buffer, BUFFER_LOCK_SHARE);
 		page = BufferGetPage(buffer);
 		maxoff = PageGetMaxOffsetNumber(page);
-
-		Assert(maxoff > 0);
 
 		for (OffsetNumber off = FirstOffsetNumber; off <= maxoff; off = OffsetNumberNext(off))
 		{
@@ -191,11 +285,10 @@ bm_init_metapage(Relation index, ForkNumber fork)
 	meta = BitmapPageGetMeta(metapage);
 	meta->magic = BITMAP_MAGIC_NUMBER;
 	meta->ndistinct = 0;
-	meta->valBlkEnd = InvalidBlockNumber;
 	for (i = 0; i < MAX_DISTINCT; i++)
-		meta->firstBlk[i] = InvalidBlockNumber;
+		meta->startBlk[i] = InvalidBlockNumber;
 
-	((PageHeader) metapage)->pd_lower += offsetof(BitmapMetaPageData, firstBlk) + \
+	((PageHeader) metapage)->pd_lower += offsetof(BitmapMetaPageData, startBlk) + \
 		sizeof(BlockNumber) * MAX_DISTINCT;
 
 	Assert(((PageHeader) metapage)->pd_lower <= ((PageHeader) metapage)->pd_upper);
@@ -234,8 +327,8 @@ bm_flush_cached(Relation index, BitmapBuildState * state)
 				BitmapPageGetOpaque(prepage)->nextBlk = BufferGetBlockNumber(buffer);
 			}
 
-			if (state->firstBlks[i] == InvalidBlockNumber)
-				state->firstBlks[i] = BufferGetBlockNumber(buffer);
+			if (state->startBlks[i] == InvalidBlockNumber)
+				state->startBlks[i] = BufferGetBlockNumber(buffer);
 
 			page = GenericXLogRegisterBuffer(xlogstate, buffer, GENERIC_XLOG_FULL_IMAGE);
 			memcpy(page, bufpage, BLCKSZ);

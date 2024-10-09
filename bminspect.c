@@ -72,14 +72,13 @@ bm_metap(PG_FUNCTION_ARGS)
 	j = 0;
 	values[j++] = psprintf("0x%X", meta->magic);
 	values[j++] = psprintf("%u", meta->ndistinct);
-	values[j++] = psprintf("%u", meta->valBlkEnd);
 
 	initStringInfo(&strinfo);
 	for (i = 0; i < meta->ndistinct && i < max_block_shown; i++)
 	{
 		if (i > 0)
 			appendStringInfoString(&strinfo, ", ");
-		appendStringInfoString(&strinfo, psprintf("%u", meta->firstBlk[i]));
+		appendStringInfoString(&strinfo, psprintf("%u", meta->startBlk[i]));
 	}
 	values[j++] = strinfo.data;
 

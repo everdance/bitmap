@@ -39,7 +39,7 @@ bmbulkdelete(IndexVacuumInfo *info,
 	}
 
 	state.blocks = palloc(sizeof(BlockNumber) * state.ndistinct);
-	memcpy(state.blocks, meta->firstBlk, sizeof(BlockNumber) * state.ndistinct);
+	memcpy(state.blocks, meta->startBlk, sizeof(BlockNumber) * state.ndistinct);
 	UnlockReleaseBuffer(buffer);
 
 	for (int i = 0; i < state.ndistinct; i++)
@@ -160,7 +160,7 @@ bmvacuumcleanup(IndexVacuumInfo *info, IndexBulkDeleteResult *stats)
 	}
 
 	blocks = palloc(sizeof(BlockNumber) * nvalues);
-	memcpy(blocks, meta->firstBlk, sizeof(BlockNumber) * nvalues);
+	memcpy(blocks, meta->startBlk, sizeof(BlockNumber) * nvalues);
 
 	for (int i = 0; i < meta->ndistinct; i++)
 	{
@@ -216,7 +216,7 @@ bmvacuumcleanup(IndexVacuumInfo *info, IndexBulkDeleteResult *stats)
 	gxlogState = GenericXLogStart(index);
 	page = GenericXLogRegisterBuffer(gxlogState, mbuffer, 0);
 	meta = BitmapPageGetMeta(page);
-	memcpy(meta->firstBlk, blocks, sizeof(BlockNumber) * meta->ndistinct);
+	memcpy(meta->startBlk, blocks, sizeof(BlockNumber) * meta->ndistinct);
 	meta->ndistinct = nvalues;
 
 	GenericXLogFinish(gxlogState);

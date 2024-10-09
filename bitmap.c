@@ -43,14 +43,14 @@ bmoptions(Datum reloptions, bool validate)
 }
 
 static BlockNumber
-bm_insert_tuple(Relation index, BlockNumber firstBlk, ItemPointer ctid)
+bm_insert_tuple(Relation index, BlockNumber startBlk, ItemPointer ctid)
 {
 	Buffer		buffer = InvalidBuffer;
 	Buffer		nbuffer = InvalidBuffer;
 	BitmapTuple *tup = bitmap_form_tuple(ctid);
 	Page		page;
 	BitmapPageOpaque opaque;
-	BlockNumber blkno = firstBlk;
+	BlockNumber blkno = startBlk;
 	GenericXLogState *gxstate;
 
 	/* insert bitmap tuple from the first block */
@@ -63,21 +63,20 @@ bm_insert_tuple(Relation index, BlockNumber firstBlk, ItemPointer ctid)
 		page = GenericXLogRegisterBuffer(gxstate, buffer, 0);
 
 		/*
-		 * TODO: ??? if we can delete tuple, how can we ensure we don't insert
-		 * mulitple
+		 * TODO: we insert index tuple when there's page have space, it can
+		 * result storing mulitple index tuples for the same heap block in 
+		 * different index blocks due to we remove index tuple on vacuum.
+		 * we don't have enough metrics to decide if we need to optimize on
+		 * this or not.
 		 */
-		/* index tuple for the same heap block ??? */
-		/* recently vacuumed page, not cleaned up yet */
-		if (BitmapPageDeleted(page))
-		{
-			bm_init_page(page, BITMAP_PAGE_INDEX);
-		}
-
-		if (bm_page_add_tup(page, tup))
+		
+		/* do not salvage recently vacuumed page, not cleaned up yet */
+		/* update existing index tuple or insert new */
+		if (!BitmapPageDeleted(page) && bm_page_add_tup(page, tup))
 		{
 			GenericXLogFinish(gxstate);
 			UnlockReleaseBuffer(buffer);
-			return firstBlk;
+			return startBlk;
 		}
 
 		opaque = BitmapPageGetOpaque(page);
@@ -111,65 +110,7 @@ bm_insert_tuple(Relation index, BlockNumber firstBlk, ItemPointer ctid)
 	if (buffer != InvalidBuffer)
 		UnlockReleaseBuffer(buffer);
 
-	return firstBlk == InvalidBlockNumber ? blkno : firstBlk;
-}
-
-/* insert indexed values into value page, starts from end value page
-   index values are never deleted onced inserted, so the pages only keep extending */
-static BlockNumber
-bm_insert_val(Relation index, BlockNumber endblk, IndexTuple itup)
-{
-	Page		page;
-	OffsetNumber maxoff;
-	BlockNumber blkno;
-	Buffer		buffer;
-	Buffer		nbuffer;
-	GenericXLogState *gxstate;
-
-	gxstate = GenericXLogStart(index);
-
-	if (endblk == InvalidBlockNumber)
-	{
-		buffer = bm_newbuffer_locked(index);
-		blkno = BufferGetBlockNumber(buffer);
-		endblk = blkno;
-		Assert(blkno == BITMAP_VALPAGE_START_BLKNO);
-		page = GenericXLogRegisterBuffer(gxstate, buffer, GENERIC_XLOG_FULL_IMAGE);
-		bm_init_page(page, BITMAP_PAGE_VALUE);
-	}
-	else
-	{
-		buffer = ReadBuffer(index, endblk);
-		LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
-		page = GenericXLogRegisterBuffer(gxstate, buffer, 0);
-	}
-
-	if (PageGetFreeSpace(page) >= (IndexTupleSize(itup) + sizeof(ItemIdData)))
-	{
-		maxoff = PageGetMaxOffsetNumber(page) + 1;
-		if (PageAddItem(page, (Item) itup, IndexTupleSize(itup), maxoff, false, false) != maxoff)
-			elog(ERROR, "failed to add item to index data page");
-
-		GenericXLogFinish(gxstate);
-		UnlockReleaseBuffer(buffer);
-		return endblk;
-	}
-
-	nbuffer = bm_newbuffer_locked(index);
-	blkno = BufferGetBlockNumber(nbuffer);
-	BitmapPageGetOpaque(page)->nextBlk = blkno;
-
-	page = GenericXLogRegisterBuffer(gxstate, nbuffer, GENERIC_XLOG_FULL_IMAGE);
-	bm_init_page(page, BITMAP_PAGE_VALUE);
-
-	if (PageAddItem(page, (Item) itup, IndexTupleSize(itup), 1, false, false) != FirstOffsetNumber)
-		elog(ERROR, "fail to add bm index tuple");
-
-	GenericXLogFinish(gxstate);
-	UnlockReleaseBuffer(buffer);
-	UnlockReleaseBuffer(nbuffer);
-
-	return blkno;
+	return startBlk == InvalidBlockNumber ? blkno : startBlk;
 }
 
 bool
@@ -179,7 +120,6 @@ bminsert(Relation index, Datum *values, bool *isnull, ItemPointer ht_ctid,
 {
 	BitmapState *state = (BitmapState *) indexInfo->ii_AmCache;
 	MemoryContext oldCxt;
-	IndexTuple	itup;
 	BitmapMetaPageData *metadata;
 	BlockNumber firstblk;
 	Buffer		metabuf;
@@ -202,52 +142,28 @@ bminsert(Relation index, Datum *values, bool *isnull, ItemPointer ht_ctid,
 	/* otherwise we can run into concurrency issues on insert same values */
 	/* when the key values do not exist */
 	metadata = bm_get_meta(index);
-	state->ndistinct = metadata->ndistinct;
-	state->valBlkEnd = metadata->valBlkEnd;
 
-	if (state->ndistinct > 0)
-		valindex = bm_get_val_index(index, values, isnull);
+    valindex = bm_insert_val(index, values, isnull);
+	firstblk = InvalidBlockNumber;
+	if (valindex < metadata->ndistinct)
+		firstblk = metadata->startBlk[valindex];
 
-	if (valindex < 0)
+
+	state->firstBlk = bm_insert_tuple(index, firstblk, ht_ctid);
+	/* index value exists but no index tuples due to deletion */
+	/* we need to increase distinct value and update meta page */
+	if (firstblk == InvalidBlockNumber)
 	{
-		if (state->ndistinct == MAX_DISTINCT)
-			elog(WARNING, "max distinct exceeded on bitmap index \"%s\"",
-				 RelationGetRelationName(index));
+		gxstate = GenericXLogStart(index);
+		metabuf = ReadBuffer(index, BITMAP_METAPAGE_BLKNO);
+		LockBuffer(metabuf, BUFFER_LOCK_EXCLUSIVE);
+		page = GenericXLogRegisterBuffer(gxstate, metabuf, 0);
+		metadata = BitmapPageGetMeta(page);
+		metadata->ndistinct += 1;
+		metadata->startBlk[valindex] = state->firstBlk;
 
-		itup = index_form_tuple(RelationGetDescr(index), values, isnull);
-		state->valBlkEnd = bm_insert_val(index, state->valBlkEnd, itup);
-		valindex = state->ndistinct++;
-	}
-
-	if (valindex >= 0)
-	{
-		firstblk = InvalidBlockNumber;
-		if (valindex < metadata->ndistinct)
-			firstblk = metadata->firstBlk[valindex];
-
-		state->firstBlk = bm_insert_tuple(index, firstblk, ht_ctid);
-		/* index value exists but previously no index tuples due to deletion */
-		/* we need to increase distinct value as well */
-		if (firstblk == InvalidBlockNumber && state->ndistinct == metadata->ndistinct)
-		{
-			state->ndistinct++;
-		}
-
-		/* update meta page data */
-		if (firstblk == InvalidBlockNumber || state->ndistinct < metadata->ndistinct)
-		{
-			gxstate = GenericXLogStart(index);
-			metabuf = ReadBuffer(index, BITMAP_METAPAGE_BLKNO);
-			LockBuffer(metabuf, BUFFER_LOCK_EXCLUSIVE);
-			page = GenericXLogRegisterBuffer(gxstate, metabuf, 0);
-			metadata = BitmapPageGetMeta(page);
-			metadata->ndistinct = state->ndistinct;
-			metadata->firstBlk[valindex] = state->firstBlk;
-			metadata->valBlkEnd = state->valBlkEnd;
-
-			GenericXLogFinish(gxstate);
-			UnlockReleaseBuffer(metabuf);
-		}
+		GenericXLogFinish(gxstate);
+		UnlockReleaseBuffer(metabuf);
 	}
 
 	MemoryContextSwitchTo(oldCxt);
@@ -263,7 +179,6 @@ bmBuildCallback(Relation index, ItemPointer tid, Datum *values,
 	BitmapBuildState *buildstate = (BitmapBuildState *) state;
 	MemoryContext oldCtx;
 	BitmapPageOpaque opaque;
-	IndexTuple	itup;
 	BitmapTuple *btup;
 	BlockNumber blkno;
 	Page		bufpage;
@@ -272,31 +187,14 @@ bmBuildCallback(Relation index, ItemPointer tid, Datum *values,
 	Buffer		buffer,
 				pbuffer = InvalidBuffer;
 	GenericXLogState *gxstate;
-	int			valindex = -1;
+	int			valindex;
 
 	oldCtx = MemoryContextSwitchTo(buildstate->tmpCtx);
 
-	if (buildstate->ndistinct > 0)
+	valindex = bm_insert_val(index, values, isnull);
+	if (valindex == buildstate->ndistinct)
 	{
-		valindex = bm_get_val_index(index, values, isnull);
-	}
-
-	if (valindex < 0)
-	{
-		if (buildstate->ndistinct == MAX_DISTINCT)
-		{
-			elog(WARNING, "max distinct exceeded");
-			MemoryContextSwitchTo(oldCtx);
-			return;
-		}
-
-		/* TODO (performance): put all distinctive values in build state, */
-		/* at the end of building, materialize to block page */
-		itup = index_form_tuple(RelationGetDescr(index), values, isnull);
-		buildstate->valEndBlk = bm_insert_val(index, buildstate->valEndBlk, itup);
 		buildstate->ndistinct++;
-		valindex = bm_get_val_index(index, values, isnull);
-		Assert(valindex >= 0);
 	}
 
 	if (!buildstate->blocks[valindex])
@@ -315,8 +213,8 @@ bmBuildCallback(Relation index, ItemPointer tid, Datum *values,
 		blkno = BufferGetBlockNumber(buffer);
 		page = GenericXLogRegisterBuffer(gxstate, buffer, GENERIC_XLOG_FULL_IMAGE);
 
-		if (buildstate->firstBlks[valindex] == InvalidBlockNumber)
-			buildstate->firstBlks[valindex] = blkno;
+		if (buildstate->startBlks[valindex] == InvalidBlockNumber)
+			buildstate->startBlks[valindex] = blkno;
 
 		/* set next block number in previous block page */
 		if (buildstate->prevBlks[valindex] != InvalidBlockNumber)
@@ -377,11 +275,10 @@ bmbuild(Relation heap, Relation index,
 	buildstate.tmpCtx = AllocSetContextCreate(CurrentMemoryContext,
 											  "Bitmap build temporary context",
 											  ALLOCSET_DEFAULT_SIZES);
-	buildstate.valEndBlk = InvalidBlockNumber;
 	buildstate.blocks = palloc0(sizeof(PGAlignedBlock *) * MAX_DISTINCT);
-	buildstate.firstBlks = palloc0(sizeof(BlockNumber) * MAX_DISTINCT);
+	buildstate.startBlks = palloc0(sizeof(BlockNumber) * MAX_DISTINCT);
 	buildstate.prevBlks = palloc0(sizeof(BlockNumber) * MAX_DISTINCT);
-	memset(buildstate.firstBlks, 0xFF, sizeof(BlockNumber) * MAX_DISTINCT);
+	memset(buildstate.startBlks, 0xFF, sizeof(BlockNumber) * MAX_DISTINCT);
 	memset(buildstate.prevBlks, 0xFF, sizeof(BlockNumber) * MAX_DISTINCT);
 
 	/* Do the heap scan */
@@ -391,9 +288,8 @@ bmbuild(Relation heap, Relation index,
 
 	bm_flush_cached(index, &buildstate);
 
-	metadata->valBlkEnd = buildstate.valEndBlk;
 	metadata->ndistinct = buildstate.ndistinct;
-	memcpy(metadata->firstBlk, buildstate.firstBlks, sizeof(BlockNumber) * buildstate.ndistinct);
+	memcpy(metadata->startBlk, buildstate.startBlks, sizeof(BlockNumber) * buildstate.ndistinct);
 
 	GenericXLogFinish(gxstate);
 	UnlockReleaseBuffer(buffer);

@@ -99,7 +99,6 @@ STORAGE         "char";
 CREATE FUNCTION bm_metap(IN relname text,
     OUT magic text,
     OUT ndistinct int8,
-    OUT val_endblk int8,
     OUT first_blks text)
 AS 'MODULE_PATHNAME', 'bm_metap'
 LANGUAGE C STRICT PARALLEL SAFE;

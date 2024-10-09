@@ -97,7 +97,7 @@ bmgettuple(IndexScanDesc scan, ScanDirection dir)
 		}
 
 		meta = bm_get_meta(index);
-		if (meta->valBlkEnd != InvalidBlockNumber)
+		if (meta->ndistinct > 0)
 		{
 			so->keyIndex = bm_get_val_index(index, values, isnull);
 		}
@@ -190,7 +190,7 @@ bmgetbitmap(IndexScanDesc scan, TIDBitmap *tbm)
 		}
 
 		meta = bm_get_meta(index);
-		if (meta->valBlkEnd != InvalidBlockNumber)
+		if (meta->ndistinct > 0)
 		{
 			so->keyIndex = bm_get_val_index(index, values, isnull);
 		}

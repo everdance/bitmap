@@ -29,14 +29,12 @@ The index data is organised in three different block pages.
 
 ### Meta Page
 
-Meta page stores distinctive key values that stored in value pages. It also contains the last value page block number. The first block number for each distinctive values are stored as an array in the page. To find the first bitmap page for a distinctive values, we need to search the rank number of the distinctive values in the value pages first, and then use the rank as index to the block number array. Meta page block number is always zero.
+Meta page stores distinctive key values that stored in value pages. The first block number for each distinctive values are stored as an array in the page. To find the first bitmap page for a distinctive values, we need to search the rank number of the distinctive values in the value pages first, and then use the rank as index to the block number array. Meta page block number is always zero.
 
 ```
 +----------------+-------------------------------------+
-| PageHeaderData | magic | ndist | valblkend |  blknum |
+| PageHeaderData | magic | ndist |  blknum ........... |
 +-----------+----+-------------------------------------+
-| ... blknum  ...								       |
-+-----------+------------------------------------------+
 ```
 
 ### Values Page
