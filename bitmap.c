@@ -270,6 +270,9 @@ bmbuild(Relation heap, Relation index,
 	metapage = GenericXLogRegisterBuffer(gxstate, buffer, 0);
 	metadata = BitmapPageGetMeta(metapage);
 
+	/* Init value page */
+	bm_init_valuepage(index, MAIN_FORKNUM);
+
 	/* Initialize the build state */
 	memset(&buildstate, 0, sizeof(buildstate));
 	buildstate.tmpCtx = AllocSetContextCreate(CurrentMemoryContext,
@@ -307,6 +310,7 @@ void
 bmbuildempty(Relation index)
 {
 	bm_init_metapage(index, INIT_FORKNUM);
+	bm_init_valuepage(index, INIT_FORKNUM);
 }
 
 

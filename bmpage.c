@@ -151,7 +151,7 @@ start:
 
 		GenericXLogFinish(gxstate);
 		UnlockReleaseBuffer(buffer);
-		return ++valIndex;
+		return valIndex;
 	}
 
 	nbuffer = bm_newbuffer_locked(index);
@@ -166,7 +166,7 @@ start:
 	UnlockReleaseBuffer(buffer);
 	UnlockReleaseBuffer(nbuffer);
 
-	return ++valIndex;
+	return valIndex;
 }
 
 int
@@ -295,6 +295,31 @@ bm_init_metapage(Relation index, ForkNumber fork)
 
 	GenericXLogFinish(state);
 	UnlockReleaseBuffer(metabuf);
+}
+
+void
+bm_init_valuepage(Relation index, ForkNumber fork)
+{
+	Buffer		buffer;
+	Page		page;
+	BitmapPageOpaque opaque;
+	GenericXLogState *state;
+
+	buffer = ReadBufferExtended(index, fork, P_NEW, RBM_NORMAL, NULL);
+	LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
+	Assert(BufferGetBlockNumber(buffer) == BITMAP_VALPAGE_START_BLKNO);
+
+	state = GenericXLogStart(index);
+	page = GenericXLogRegisterBuffer(state, buffer,
+										 GENERIC_XLOG_FULL_IMAGE);
+
+	bm_init_page(page, BITMAP_PAGE_VALUE);
+	opaque = BitmapPageGetOpaque(page);
+	opaque->maxoff = 0;
+	opaque->nextBlk = InvalidBlockNumber;
+
+	GenericXLogFinish(state);
+	UnlockReleaseBuffer(buffer);
 }
 
 void

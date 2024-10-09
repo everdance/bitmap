@@ -57,7 +57,7 @@ bm_metap(PG_FUNCTION_ARGS)
 	int			max_block_shown = 10;
 	int			i;
 	int			j;
-	char	   *values[4];
+	char	   *values[3];
 	StringInfoData strinfo;
 
 	buffer = ReadBuffer(rel, 0);
