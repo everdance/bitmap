@@ -42,18 +42,6 @@ bm_page_add_tup(Page page, BitmapTuple * tuple)
 	return true;
 }
 
-BlockNumber
-bm_get_blkno(Relation index, int valIdx)
-{
-	BitmapMetaPageData *meta = bm_get_meta(index);
-
-	Assert(valIdx >= 0);
-	Assert(meta->magic == BITMAP_MAGIC_NUMBER);
-	Assert(meta->ndistinct > valIdx);
-
-	return meta->startBlk[valIdx];
-}
-
 BitmapMetaPageData *
 bm_get_meta(Relation index)
 {
@@ -65,7 +53,7 @@ bm_get_meta(Relation index)
 	buffer = ReadBuffer(index, BITMAP_METAPAGE_BLKNO);
 	LockBuffer(buffer, BUFFER_LOCK_SHARE);
 	meta = BitmapPageGetMeta(BufferGetPage(buffer));
-	size = offsetof(BitmapMetaPageData, startBlk) + sizeof(BlockNumber) * meta->ndistinct;
+	size = offsetof(BitmapMetaPageData, startBlk) + sizeof(BlockNumber) * MAX_DISTINCT;
 	metacpy = palloc0(size);
 	memcpy(metacpy, meta, size);
 	UnlockReleaseBuffer(buffer);
@@ -79,17 +67,18 @@ int
 bm_insert_val(Relation index, Datum *values, bool *isnull)
 {
 	Page		page;
-	OffsetNumber maxoff, off;
+	OffsetNumber maxoff,
+				off;
 	BlockNumber blkno;
 	Buffer		buffer;
 	Buffer		nbuffer;
 	BitmapPageOpaque opaque;
-	IndexTuple itup;
-	int valIndex = 0;
+	IndexTuple	itup;
+	int			valIndex = 0;
 	GenericXLogState *gxstate;
 
 start:
-    blkno = BITMAP_VALPAGE_START_BLKNO;
+	blkno = BITMAP_VALPAGE_START_BLKNO;
 	for (;;)
 	{
 		buffer = ReadBuffer(index, blkno);
@@ -125,7 +114,7 @@ start:
 
 	if (valIndex == MAX_DISTINCT - 1)
 		elog(WARNING, "max distinct exceeded on bitmap index \"%s\"",
-					RelationGetRelationName(index));
+			 RelationGetRelationName(index));
 
 
 	gxstate = GenericXLogStart(index);
@@ -133,12 +122,15 @@ start:
 	LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
 	page = GenericXLogRegisterBuffer(gxstate, buffer, 0);
 
-	/*contention: new values has been inserted into the page after we upgrade to exclusive lock */
+	/*
+	 * contention: new values has been inserted into the page after we upgrade
+	 * to exclusive lock
+	 */
 	if (PageGetMaxOffsetNumber(page) != maxoff)
 	{
-		 valIndex = 0;
-		 GenericXLogAbort(gxstate);
-		 UnlockReleaseBuffer(buffer);
+		valIndex = 0;
+		GenericXLogAbort(gxstate);
+		UnlockReleaseBuffer(buffer);
 		goto start;
 	}
 
@@ -311,7 +303,7 @@ bm_init_valuepage(Relation index, ForkNumber fork)
 
 	state = GenericXLogStart(index);
 	page = GenericXLogRegisterBuffer(state, buffer,
-										 GENERIC_XLOG_FULL_IMAGE);
+									 GENERIC_XLOG_FULL_IMAGE);
 
 	bm_init_page(page, BITMAP_PAGE_VALUE);
 	opaque = BitmapPageGetOpaque(page);

@@ -64,12 +64,12 @@ bm_insert_tuple(Relation index, BlockNumber startBlk, ItemPointer ctid)
 
 		/*
 		 * TODO: we insert index tuple when there's page have space, it can
-		 * result storing mulitple index tuples for the same heap block in 
-		 * different index blocks due to we remove index tuple on vacuum.
-		 * we don't have enough metrics to decide if we need to optimize on
-		 * this or not.
+		 * result storing mulitple index tuples for the same heap block in
+		 * different index blocks due to we remove index tuple on vacuum. we
+		 * don't have enough metrics to decide if we need to optimize on this
+		 * or not.
 		 */
-		
+
 		/* do not salvage recently vacuumed page, not cleaned up yet */
 		/* update existing index tuple or insert new */
 		if (!BitmapPageDeleted(page) && bm_page_add_tup(page, tup))
@@ -121,8 +121,8 @@ bminsert(Relation index, Datum *values, bool *isnull, ItemPointer ht_ctid,
 	BitmapState *state = (BitmapState *) indexInfo->ii_AmCache;
 	MemoryContext oldCxt;
 	BitmapMetaPageData *metadata;
-	BlockNumber firstblk;
-	Buffer		metabuf;
+	BlockNumber startBlk;
+	Buffer		buffer;
 	Page		page;
 	int			valindex = -1;
 	GenericXLogState *gxstate;
@@ -138,32 +138,38 @@ bminsert(Relation index, Datum *values, bool *isnull, ItemPointer ht_ctid,
 	}
 
 	oldCxt = MemoryContextSwitchTo(state->tmpCxt);
-	/* TODO: clean this up, we should share lock meta page ??? */
-	/* otherwise we can run into concurrency issues on insert same values */
-	/* when the key values do not exist */
+
+	/* value page addresses contention of inserting same values */
+	valindex = bm_insert_val(index, values, isnull);
 	metadata = bm_get_meta(index);
+	startBlk = metadata->startBlk[valindex];
+	state->startBlk = bm_insert_tuple(index, startBlk, ht_ctid);
 
-    valindex = bm_insert_val(index, values, isnull);
-	firstblk = InvalidBlockNumber;
-	if (valindex < metadata->ndistinct)
-		firstblk = metadata->startBlk[valindex];
-
-
-	state->firstBlk = bm_insert_tuple(index, firstblk, ht_ctid);
-	/* index value exists but no index tuples due to deletion */
-	/* we need to increase distinct value and update meta page */
-	if (firstblk == InvalidBlockNumber)
+	/*
+	 * index value does not exists or exist but no index tuples due to
+	 * deletion we need to increase distinct value in either case
+	 */
+	if (startBlk == InvalidBlockNumber)
 	{
 		gxstate = GenericXLogStart(index);
-		metabuf = ReadBuffer(index, BITMAP_METAPAGE_BLKNO);
-		LockBuffer(metabuf, BUFFER_LOCK_EXCLUSIVE);
-		page = GenericXLogRegisterBuffer(gxstate, metabuf, 0);
+		buffer = ReadBuffer(index, BITMAP_METAPAGE_BLKNO);
+		LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
+		page = GenericXLogRegisterBuffer(gxstate, buffer, 0);
 		metadata = BitmapPageGetMeta(page);
-		metadata->ndistinct += 1;
-		metadata->startBlk[valindex] = state->firstBlk;
 
-		GenericXLogFinish(gxstate);
-		UnlockReleaseBuffer(metabuf);
+		/* meta data already being updated by concurrent insertion */
+		if (metadata->startBlk[valindex] != InvalidBlockNumber)
+		{
+			GenericXLogAbort(gxstate);
+		}
+		else
+		{
+			metadata->ndistinct += 1;
+			metadata->startBlk[valindex] = state->startBlk;
+			GenericXLogFinish(gxstate);
+		}
+
+		UnlockReleaseBuffer(buffer);
 	}
 
 	MemoryContextSwitchTo(oldCxt);
