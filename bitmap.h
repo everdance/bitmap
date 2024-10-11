@@ -21,15 +21,14 @@
 #define MAX_DISTINCT ((BLCKSZ \
     -MAXALIGN(SizeOfPageHeaderData) \
     -MAXALIGN(sizeof(struct BitmapPageSpecData)) \
-    -MAXALIGN(offsetof(BitmapMetaPageData, firstBlk)) \
+    -MAXALIGN(offsetof(BitmapMetaPageData, startBlk)) \
   ) / sizeof(BlockNumber))
 
 typedef struct BitmapMetaPageData
 {
   uint32 magic;
   uint32 ndistinct; // number of distinct values, automatically increase until max distinct
-  BlockNumber valBlkEnd; // end value page block number
-  BlockNumber firstBlk[FLEXIBLE_ARRAY_MEMBER]; // index page by distinct vals index
+  BlockNumber startBlk[FLEXIBLE_ARRAY_MEMBER]; // index page by distinct vals index
 } BitmapMetaPageData;
 
 #define BitmapPageGetMeta(page) ((BitmapMetaPageData *) PageGetContents(page))
@@ -73,8 +72,7 @@ typedef struct BitmapTuple {
 typedef struct BitmapState
 {
   uint32 ndistinct;
-  BlockNumber valBlkEnd;
-  BlockNumber firstBlk;
+  BlockNumber startBlk;
   BlockNumber *blocks; 
   MemoryContext tmpCxt;
 } BitmapState;
@@ -83,8 +81,7 @@ typedef struct BitmapBuildState
 {
   int64 indtuples;
   uint32 ndistinct;
-  BlockNumber valEndBlk;
-  BlockNumber *firstBlks;
+  BlockNumber *startBlks;
   BlockNumber *prevBlks;
   MemoryContext tmpCtx;
   PGAlignedBlock **blocks;
@@ -131,12 +128,13 @@ extern IndexBulkDeleteResult *bmbulkdelete(IndexVacuumInfo *info,
 extern IndexBulkDeleteResult *bmvacuumcleanup(IndexVacuumInfo *info, IndexBulkDeleteResult *stats);
 
 extern bool bm_page_add_tup(Page page, BitmapTuple *tuple);
+extern int bm_insert_val(Relation index, Datum *values, bool *isnull);
 extern int bm_get_val_index(Relation index, Datum *values, bool *isnull);
 extern Buffer bm_newbuffer_locked(Relation index);
 extern void bm_init_page(Page page, uint16 pgtype);
 extern void bm_init_metapage(Relation index, ForkNumber fork);
+extern void bm_init_valuepage(Relation index, ForkNumber fork);
 extern void bm_flush_cached(Relation index, BitmapBuildState *state);
-extern BlockNumber bm_get_blkno(Relation index, int valIdx);
 extern BitmapMetaPageData* bm_get_meta(Relation index);
 
 

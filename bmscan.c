@@ -97,7 +97,7 @@ bmgettuple(IndexScanDesc scan, ScanDirection dir)
 		}
 
 		meta = bm_get_meta(index);
-		if (meta->valBlkEnd != InvalidBlockNumber)
+		if (meta->ndistinct > 0)
 		{
 			so->keyIndex = bm_get_val_index(index, values, isnull);
 		}
@@ -105,7 +105,7 @@ bmgettuple(IndexScanDesc scan, ScanDirection dir)
 		if (so->keyIndex < 0)
 			return false;
 
-		so->curBlk = bm_get_blkno(index, so->keyIndex);
+		so->curBlk = meta->startBlk[so->keyIndex];
 		if (so->curPage == NULL)
 		{
 			so->curPage = (Page) palloc(sizeof(PGAlignedBlock));
@@ -190,7 +190,7 @@ bmgetbitmap(IndexScanDesc scan, TIDBitmap *tbm)
 		}
 
 		meta = bm_get_meta(index);
-		if (meta->valBlkEnd != InvalidBlockNumber)
+		if (meta->ndistinct > 0)
 		{
 			so->keyIndex = bm_get_val_index(index, values, isnull);
 		}
@@ -199,7 +199,7 @@ bmgetbitmap(IndexScanDesc scan, TIDBitmap *tbm)
 		if (so->keyIndex < 0)
 			return 0;
 
-		so->curBlk = bm_get_blkno(index, so->keyIndex);
+		so->curBlk = meta->startBlk[so->keyIndex];
 	}
 
 	while (so->curBlk != InvalidBlockNumber)
