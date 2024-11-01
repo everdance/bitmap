@@ -23,40 +23,38 @@ test
 
 ## Design
 
-The index does not make assumption or require user's input on the number of distinctive values. However, there's a limit set by how many block number entries we can store in the single meta page. With 8192 block size, the access method can index maximumly 2042 distinctive values which is sufficient for intended bitmap use cases.
+The index does not make assumption or require user's input on the number of distinctive values. However, there's a limit set by how many block number ids we can store in the single meta data block page. With 8192 block size, the access method can index maximumly 2042 distinctive values which is sufficient for intended bitmap use cases.
 
-The index data is organised in three different block pages. 
+The index method does not use hash code to represent distinctive index keys. Traditional bloom indexes requires set max distinctive values index option to precompute optimised hash code length. In this method, distinctive key values can simplify increase automatically on index build/insert.
+
+The native brin/bloom index method is very lightweight but lossy. It stores heap block level bitmaps. It uses hash to compute the bitmap for minimumly one heap block or more commonly a range of blocks. Bloom method in contrib module indexes stores both heap tuple pointer and hashed value of index keys, it consumes more spaces.
+
+The index data are organised in three different block pages. 
 
 ### Meta Page
 
-Meta page stores distinctive key values that stored in value pages. The first block number for each distinctive values are stored as an array in the page. To find the first bitmap page for a distinctive values, we need to search the rank number of the distinctive values in the value pages first, and then use the rank as index to the block number array. Meta page block number is always zero.
+Meta page stores distinctive key values that stored in value pages. The first block page number for each distinctive key values are stored as an array in the page. To find the first bitmap page for a distinctive key values, we need to find the ordering number in value pages first, and then use the order as index to the block number array. Meta page block number is always zero.
 
 ```
 +----------------+-------------------------------------+
-| PageHeaderData | magic | ndist |  blknum ........... |
+| PageHeaderData | magic | ndist |  array of blknums   |
 +-----------+----+-------------------------------------+
 ```
 
 ### Values Page
 
-Values page store distinctive index values that inserted. The page layout is identical to regular block storing index/heap tuples. In special space of the page, it keeps how man items stored in the page and the block number of next value page for traversing.
+Values page stores distinctive index key values that are inserted. The page layout is identical to regular block storing heap tuples. In special space of the page, it keeps how many items are stored in the page and the block number of next value page.
 
 ### Bitmap Page
 
-Bitmap page is a regular index page. The index tuple stores a bit set indicating whether heap tuples have the distinctive values and the block number of the heap page. Each heap tuple is represented by one bit, the offset of the bit in the bit set represents the offset position of the tuple in the heap block.
+Bitmap page is a regular index page. A index tuple in the page stores the bitset for one heap page indicating whether each heap tuple have the distinctive values. Each heap tuple is represented by one bit, 1 means match, 0 is not. The offset of the bit in the bitset(low to high) represents the offset position of the tuple in the heap block.
 
-## Comparison with brin/bloom index
-
-This bitmap index differs from other bloom indexes that it does not use hashed code to represent distinctive index keys. Traditional bloom indexes requires max distinctive values option to compute the optimised hash code length. This index does not require the option, distinctive keys can simplify increase to max distinctive values internally forced by single mete page constraint. Also, it does not need to recheck due to lossy hash.
-
-The native brin/bloom access method is a very lightweight but lossy index. It store heap block level bitmaps. It uses hash to compute the bitmap for minimumly one heap block or more commonly a range of blocks. Bloom method in contrib module indexes table at heap tuple level storing both heap tuple pointer and hashed value of index keys, it's much bulky that the bitmap index approach here. 
-
-### Space Comparisions
+## Statistics
 
 Heap table
 
 ```sql
-postgres=# INSERT INTO tst SELECT i%2, substr(md5(i::text), 1, 1) FROM generate_series(1,2000000) i;
+postgres=# INSERT INTO tst SELECT i%10, substr(md5(i::text), 1, 1) FROM generate_series(1,2000000) i;
 INSERT 0 2000000
 
 postgres=# select relpages from pg_class where relname = 'tst';
@@ -64,6 +62,14 @@ postgres=# select relpages from pg_class where relname = 'tst';
 ----------
      8850
 (1 row)
+
+postgres=# select count(*) from tst where i = 0;
+ count  
+--------
+ 200000
+(1 row)
+
+Time: 65.970 ms
 ```
 
 Bitmap
@@ -75,8 +81,17 @@ CREATE INDEX
 postgres=# select relpages from pg_class where relname = 'bitmapidx';
  relpages 
 ----------
-       72
+       402
+
 (1 row)
+
+postgres=# select count(*) from tst where i = 0;
+ count  
+--------
+ 200000
+(1 row)
+
+Time: 24.862 ms
 ```
 
 Bloom
@@ -87,8 +102,16 @@ CREATE INDEX
 postgres=# select relpages from pg_class where relname = 'bloom_idx_tst';            
  relpages 
 ----------
-     1962
+     3923
 (1 row)
+
+postgres=# select count(*) from tst where i = 0;
+ count  
+--------
+ 200000
+(1 row)
+
+Time: 79.667 ms
 ```
 
 Brin
@@ -101,6 +124,14 @@ postgres=# select relpages from pg_class where relname = 'brin_idx_tst';
 ----------
        30
 (1 row)
+
+postgres=# select count(*) from tst where i = 0;
+ count  
+--------
+ 200000
+(1 row)
+
+Time: 92.875 ms
 ```
 
 Btree
@@ -111,68 +142,50 @@ CREATE INDEX
 postgres=# select relpages from pg_class where relname = 'breetst';
  relpages 
 ----------
-     1695
+     1696
 (1 row)
 
+postgres=# select count(*) from tst where i = 0;
+ count  
+--------
+ 200000
+(1 row)
+
+Time: 31.803 ms
 ```
 
 
 ## Page Inspection Functions
 
 ```sql
-postgres=# create index bitmapidx on tst using bitmap (i);
-CREATE INDEX
+postgres=# select * from bm_metap('bitmapidx');                                      
+   magic    | ndistinct |           start_blks           
+------------+-----------+--------------------------------
+ 0xDABC9876 |        10 | 6, 7, 8, 9, 10, 11, 2, 3, 4, 5
+(1 row)
+
 postgres=# select * from bm_valuep('bitmapidx',1);
  index | data 
 -------+------
      1 | 1
-     2 | 0
-(2 rows)
+     2 | 2
+     3 | 3
+     4 | 4
+     5 | 5
+     6 | 6
+     7 | 7
+     8 | 8
+     9 | 9
+    10 | 0
+(10 rows)
 
-postgres=# select * from bm_metap('bitmapidx');
-   magic    | ndistinct | val_endblk | first_blks 
-------------+-----------+------------+------------
- 0xDABC9876 |         2 |          1 | 2, 3
-(1 row)
-
-postgres=# select * from bm_indexp('bitmapidx',2);
- index | heap_blk |                             bitmap                              
--------+----------+-----------------------------------------------------------------
-     1 |        0 | AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA 
-     2 |        1 | AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA 
-     3 |        2 | AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA 
-     4 |        3 | AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA 
-     5 |        4 | AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA 
-     6 |        5 | AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA 
-     7 |        6 | AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA 
-     8 |        7 | AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA 
-     9 |        8 | AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA 0 
-(9 rows)
-
-postgres=# select * from bm_indexp('bitmapidx',3);
- index | heap_blk |                             bitmap                              
--------+----------+-----------------------------------------------------------------
-     1 |        0 | 55555554 55555555 55555555 55555555 55555555 55555555 55555555 
-     2 |        1 | 55555554 55555555 55555555 55555555 55555555 55555555 55555555 
-     3 |        2 | 55555554 55555555 55555555 55555555 55555555 55555555 55555555 
-     4 |        3 | 55555554 55555555 55555555 55555555 55555555 55555555 55555555 
-     5 |        4 | 55555554 55555555 55555555 55555555 55555555 55555555 55555555 
-     6 |        5 | 55555554 55555555 55555555 55555555 55555555 55555555 55555555 
-     7 |        6 | 55555554 55555555 55555555 55555555 55555555 55555555 55555555 
-     8 |        7 | 55555554 55555555 55555555 55555555 55555555 55555555 55555555 
-     9 |        8 | 55555554 55555555 55555555 55555555 55555555 55555555 1 
-(9 rows)
-
-postgres=# select relpages from pg_class where relname = 'bitmapidx';
- relpages 
-----------
-        4
-(1 row)
-
-postgres=# select relpages from pg_class where relname = 'tst';
- relpages 
-----------
-        9
-(1 row)
-
+postgres=# select * from bm_indexp('bitmapidx',2) limit 5;
+ index | heap_blk |                                  bitmap                                  
+-------+----------+--------------------------------------------------------------------------
+     1 |        0 | 04010040 01004010 00401004 40100401 10040100 04010040 01004010 00000000 
+     2 |        1 | 40100401 10040100 04010040 01004010 00401004 40100401 10040100 00000000 
+     3 |        2 | 01004010 00401004 40100401 10040100 04010040 01004010 00401004 00000001 
+     4 |        3 | 10040100 04010040 01004010 00401004 40100401 10040100 04010040 00000000 
+     5 |        4 | 00401004 40100401 10040100 04010040 01004010 00401004 40100401 00000000 
+(5 rows)
 ```

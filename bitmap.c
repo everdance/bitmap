@@ -231,10 +231,7 @@ bmBuildCallback(Relation index, ItemPointer tid, Datum *values,
 			opaque = BitmapPageGetOpaque(prevpage);
 			opaque->nextBlk = blkno;
 		}
-		else
-		{
-			buildstate->prevBlks[valindex] = blkno;
-		}
+		buildstate->prevBlks[valindex] = blkno;
 
 		memcpy(page, bufpage, BLCKSZ);
 		GenericXLogFinish(gxstate);
