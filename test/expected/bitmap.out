@@ -46,20 +46,20 @@ SELECT * FROM bm_indexp('bmidx', 4);
 
 SET enable_seqscan=off;
 EXPLAIN SELECT * FROM test_tbl WHERE i = 0;
-                             QUERY PLAN                              
----------------------------------------------------------------------
- Bitmap Heap Scan on test_tbl  (cost=29.53..38.99 rows=6 width=36)
+                             QUERY PLAN                             
+--------------------------------------------------------------------
+ Bitmap Heap Scan on test_tbl  (cost=4.05..13.51 rows=6 width=36)
    Recheck Cond: (i = 0)
-   ->  Bitmap Index Scan on bmidx  (cost=0.00..29.52 rows=6 width=0)
+   ->  Bitmap Index Scan on bmidx  (cost=0.00..4.04 rows=6 width=0)
          Index Cond: (i = 0)
 (4 rows)
 
 EXPLAIN SELECT * FROM test_tbl WHERE i IS NULL;
-                             QUERY PLAN                              
----------------------------------------------------------------------
- Bitmap Heap Scan on test_tbl  (cost=29.53..38.98 rows=6 width=36)
+                             QUERY PLAN                             
+--------------------------------------------------------------------
+ Bitmap Heap Scan on test_tbl  (cost=4.05..13.50 rows=6 width=36)
    Recheck Cond: (i IS NULL)
-   ->  Bitmap Index Scan on bmidx  (cost=0.00..29.52 rows=6 width=0)
+   ->  Bitmap Index Scan on bmidx  (cost=0.00..4.04 rows=6 width=0)
          Index Cond: (i IS NULL)
 (4 rows)
 
