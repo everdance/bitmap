@@ -2,23 +2,17 @@
 
 This is a bitmap index access method extension for PostgreSQL. The advantageous use case of this index is for large tables with columns that have very few distinctive values. With bitmap index on these columns, the access method can generate heap tid map efficiently as the bitmap for heap tuples are organised by distinctive values and bulkly grouped in one index tuple for each heap block.
 
-## Compile, Install and Test
-
-To compile and install the extension:
+## Install
+To install the extension, download the source and enter the source directory:
 
 ```bash
 > make
 > make install
 ```
 
-```bash
-> make clean
-```
-
-test
-
-```bash
-> make installcheck
+Connect to Postgres Server:
+```sql
+postgres=# create extension bitmap;
 ```
 
 ## Design
