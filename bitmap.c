@@ -52,6 +52,7 @@ bm_insert_tuple(Relation index, BlockNumber startBlk, ItemPointer ctid)
 	BitmapPageOpaque opaque;
 	BlockNumber blkno = startBlk;
 	GenericXLogState *gxstate;
+	bool inserted;
 
 	/* insert bitmap tuple from the first block */
 	while (blkno != InvalidBlockNumber)
@@ -72,7 +73,7 @@ bm_insert_tuple(Relation index, BlockNumber startBlk, ItemPointer ctid)
 
 		/* do not salvage recently vacuumed page, not cleaned up yet */
 		/* update existing index tuple or insert new */
-		if (!BitmapPageDeleted(page) && bm_page_add_tup(page, tup))
+		if (!BitmapPageDeleted(page) && bm_page_add_tup(page, tup, &inserted))
 		{
 			GenericXLogFinish(gxstate);
 			UnlockReleaseBuffer(buffer);
@@ -95,7 +96,7 @@ bm_insert_tuple(Relation index, BlockNumber startBlk, ItemPointer ctid)
 	page = GenericXLogRegisterBuffer(gxstate, nbuffer, GENERIC_XLOG_FULL_IMAGE);
 	bm_init_page(page, BITMAP_PAGE_INDEX);
 
-	if (!bm_page_add_tup(page, tup))
+	if (!bm_page_add_tup(page, tup, &inserted))
 		elog(ERROR, "insert bitmap tuple failed on new page");
 
 	if (buffer != InvalidBuffer)
@@ -194,6 +195,7 @@ bmBuildCallback(Relation index, ItemPointer tid, Datum *values,
 				pbuffer = InvalidBuffer;
 	GenericXLogState *gxstate;
 	int			valindex;
+	bool        inserted;
 
 	oldCtx = MemoryContextSwitchTo(buildstate->tmpCtx);
 
@@ -212,7 +214,7 @@ bmBuildCallback(Relation index, ItemPointer tid, Datum *values,
 	btup = bitmap_form_tuple(tid);
 	bufpage = (Page) buildstate->blocks[valindex];
 
-	if (!bm_page_add_tup(bufpage, btup))
+	if (!bm_page_add_tup(bufpage, btup, &inserted))
 	{
 		gxstate = GenericXLogStart(index);
 		buffer = bm_newbuffer_locked(index);
@@ -231,10 +233,7 @@ bmBuildCallback(Relation index, ItemPointer tid, Datum *values,
 			opaque = BitmapPageGetOpaque(prevpage);
 			opaque->nextBlk = blkno;
 		}
-		else
-		{
-			buildstate->prevBlks[valindex] = blkno;
-		}
+		buildstate->prevBlks[valindex] = blkno;
 
 		memcpy(page, bufpage, BLCKSZ);
 		GenericXLogFinish(gxstate);
@@ -243,11 +242,14 @@ bmBuildCallback(Relation index, ItemPointer tid, Datum *values,
 			UnlockReleaseBuffer(pbuffer);
 
 		bm_init_page(bufpage, BITMAP_PAGE_INDEX);
-		if (!bm_page_add_tup(bufpage, btup))
+		if (!bm_page_add_tup(bufpage, btup, &inserted))
 			elog(ERROR, "could not add new tuple to empty page");
 	}
 
-	buildstate->indtuples++;
+	if (inserted) {
+		buildstate->indtuples++;
+	}
+
 	MemoryContextSwitchTo(oldCtx);
 }
 

@@ -8,7 +8,7 @@
 #include "bitmap.h"
 
 bool
-bm_page_add_tup(Page page, BitmapTuple * tuple)
+bm_page_add_tup(Page page, BitmapTuple * tuple, bool *inserted)
 {
 	BitmapTuple *itup;
 	BitmapPageOpaque opaque;
@@ -24,6 +24,7 @@ bm_page_add_tup(Page page, BitmapTuple * tuple)
 			{
 				itup->bm[j] |= tuple->bm[j];
 			}
+			*inserted = false;
 			return true;
 		}
 	}
@@ -38,6 +39,7 @@ bm_page_add_tup(Page page, BitmapTuple * tuple)
 	/* Adjust maxoff and pd_lower */
 	ptr = (Pointer) BitmapPageGetTuple(page, opaque->maxoff + 1);
 	((PageHeader) page)->pd_lower = ptr - page;
+	*inserted = true;
 
 	return true;
 }

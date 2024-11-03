@@ -127,7 +127,7 @@ extern IndexBulkDeleteResult *bmbulkdelete(IndexVacuumInfo *info,
                                     void *callback_state);
 extern IndexBulkDeleteResult *bmvacuumcleanup(IndexVacuumInfo *info, IndexBulkDeleteResult *stats);
 
-extern bool bm_page_add_tup(Page page, BitmapTuple *tuple);
+extern bool bm_page_add_tup(Page page, BitmapTuple *tuple, bool *inserted);
 extern int bm_insert_val(Relation index, Datum *values, bool *isnull);
 extern int bm_get_val_index(Relation index, Datum *values, bool *isnull);
 extern Buffer bm_newbuffer_locked(Relation index);
